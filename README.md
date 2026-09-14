@@ -41,6 +41,31 @@ Ollamaを主要な実行環境として扱い、可能な処理はローカル�
 
 一般的なAIチャットではなく、**人格・設定・関係性・継続性**を優先したキャラクターチャットとして設計します。
 
+### Local WebUI + Desktop Wrapper
+
+アプリケーション本体は **Python/FastAPI + React/TypeScript のローカルWebUI** として成立させます。
+
+Tauriは必須のdomain runtimeではなく、デスクトップ配布、Python backendの起動管理、credential store、native file picker等のOS統合を担当するラッパーとして利用します。
+
+```text
+Browser or Tauri WebView
+        │
+        │ HTTP / streaming
+        ▼
+Python / FastAPI
+        │
+        ├─ Character / Memory / Recall / Guardian
+        ├─ SQLite
+        └─ Ollama / Cloud LLM APIs
+
+Tauri
+  └─ window / sidecar / native integration / packaging
+```
+
+そのため、Tauriを使わず通常のブラウザからlocalhostへアクセスする実行モードも第一級として維持します。
+
+詳細は [`docs/adr/0002-local-webui-desktop-wrapper.md`](docs/adr/0002-local-webui-desktop-wrapper.md) を参照してください。
+
 ## High-level Architecture
 
 ```text
@@ -309,7 +334,8 @@ response_evaluations
 - FastAPI
 - Pydantic
 - async HTTP client
-- Tauri sidecarとしてdesktop appへ同梱する方向
+- Local WebUIでは直接起動
+- DesktopではTauri sidecarとして同梱する方向
 
 ### Storage
 
@@ -323,6 +349,26 @@ response_evaluations
 - OpenAI API
 - Gemini API
 - xAI API
+
+### Runtime modes
+
+```text
+Local WebUI mode
+Browser
+   ↓
+React / TypeScript
+   ↓ HTTP / streaming
+FastAPI / Python
+
+Desktop mode
+Tauri WebView
+   ↓
+React / TypeScript
+   ↓ HTTP / streaming
+FastAPI / Python sidecar
+```
+
+Tauriの有無によってCharacter / Memory / Recall / Guardian等の挙動が変わらないことを原則とします。
 
 ### Language boundary
 
@@ -346,6 +392,7 @@ Character / Memory / Recall / Guardian / Provider等のdomain logicはPython側�
 
 最初の実用版では、機能を以下に絞る予定です。
 
+- Local WebUIとしての起動
 - キャラクター作成 / 編集
 - Ollama接続
 - モデル一覧・選択
@@ -360,6 +407,7 @@ Character / Memory / Recall / Guardian / Provider等のdomain logicはPython側�
 - 基本的なGuardian / Repair loop
 - OpenAI / Gemini / xAI Provider追加
 - Provider credential設定
+- Tauri desktop wrapper
 
 ## Future: Evaluation and Fine-tuning
 
@@ -390,6 +438,7 @@ v0.1では以下を優先しません。
 - SNS的なキャラクター共有機能
 - 高度なマルチユーザー機能
 - 完全な自律Agent化
+- デフォルトでのLAN / Internet公開
 
 まずは**長期間会話しても設定・人格・関係性が壊れにくいキャラクターチャット**を成立させることを優先します。
 
