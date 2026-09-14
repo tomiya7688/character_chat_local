@@ -19,179 +19,254 @@
 - Windows / macOS / Linuxへの配布を想定
 - 将来的に評価データ作成、LoRA / DPO等の実験を行う
 
-Python/FastAPIをアプリ本体のsidecarとして利用する案も検討したが、v0.1では配布・プロセス管理・IPC・runtime同梱の複雑さを増やさないことを優先する。
+`feat/initial-core-context-reducer` ではすでに Python / FastAPI ベースで Provider、Recall、Guardian、Storage 等の初期実装が進んでいる。これらは今後も実験・調整の頻度が高い領域であり、PythonのLLM/MLエコシステムとの親和性も高い。
+
+一方、デスクトップUIはTauri + Reactを想定しているため、UIにはTypeScriptを利用する。RustはTauriのnative shellおよびOS統合に限定し、v0.1ではdomain logicをRustへ分散させない。
 
 ## Decision
 
-### Application runtime: Rust + TypeScript
+### Primary languages: Python + TypeScript
 
-アプリ本体は **Rust + TypeScript** の2言語を基本とする。
+v0.1の主開発言語は以下の2つとする。
 
-### Rust
+- **Python**: application core / local backend / LLM orchestration
+- **TypeScript**: frontend / desktop UI
 
-Rustをアプリケーションコアに使用する。
+加えて、Tauriが必要とする最小限の **Rust** と、SQLite migration用の **SQL** を利用する。
 
-担当範囲:
+## Python
 
-- Tauri backend / native commands
+Pythonをアプリケーションコアに使用する。
+
+### Version policy
+
+- Python 3.11+
+- 型注釈を必須とする方向で運用
+- Pydantic modelをAPI/domain境界のschemaとして利用
+
+### Responsibilities
+
+- FastAPI local service
 - LLM Provider abstraction
-- Ollama / OpenAI / Gemini / xAIとのHTTP通信
+- Ollama / OpenAI / Gemini / xAIとの通信
 - streaming response orchestration
 - Character Engine
 - Memory Engine
 - Recall Engine
 - State Engine
 - Guardian / Validator / Repair loop
-- SQLite access / migrations execution
-- credential / OS integration
-- filesystem access
-- background tasks / cancellation
+- SQLite access
+- evaluation logging
+- dataset export
+- 将来のembedding / reranking / ML experimentation
 
-原則として、LLM API keyや内部Memory等の機微な情報をFrontendだけで処理しない。
+### Why Python
 
-### TypeScript
+- Provider / Recall / Guardian等の初期実装がすでに存在する
+- Character tuningやRecall scoringは試行錯誤が多く、変更速度を重視したい
+- Pydantic / FastAPIによりschemaとAPIを明確に保ちやすい
+- LLM / embedding / reranking / evaluation / fine-tuning周辺のライブラリへ移行しやすい
+- 将来のLoRA / DPO / benchmark toolingと同じ言語を利用できる
+
+## TypeScript
 
 TypeScriptをFrontendに使用する。
 
-担当範囲:
+### Policy
 
-- React UI
-- Character editor
+- JavaScriptではなくTypeScriptを使用
+- `strict` modeを前提とする
+- React + Viteを基本構成とする
+
+### Responsibilities
+
 - Chat UI
-- Conversation / model selector
+- Character editor
+- Conversation list
+- Model / Provider selector
 - Settings UI
 - Memory / Recall / Guardian debug UI
 - frontend state management
-- Tauri IPC client
+- FastAPI client
+- Tauri integration layer
 
-JavaScriptではなくTypeScriptを必須とし、`strict` modeを前提とする。
+### Why TypeScript
 
-### Python
+- React / Vite / Tauri frontendとの親和性が高い
+- Character / Memory / Validator等の複雑なUI stateを型安全に扱える
+- Python側schemaから生成したAPI typesを利用しやすい
+- UIのdomain logic混入を型境界で抑えやすい
 
-Pythonは **アプリ本体のruntimeには含めない**。
+## Rust
 
-`tools/` 配下の開発・研究用途に限定する。
+Rustは **主開発言語にはしない**。
 
-用途例:
+Tauri shellと、Python/TypeScriptだけでは扱いづらいnative機能に限定する。
 
-- evaluation scripts
-- conversation log analysis
-- dataset cleanup / conversion
-- preference pair generation
-- benchmark scripts
-- LoRA / DPO / fine-tuning experiments
-- prototype / offline analysis
+### Responsibilities
 
-Pythonで有効性が確認されたアルゴリズムを本番runtimeへ入れる場合は、原則Rustへ移植する。Python runtimeが必須になる機能が将来登場した場合は、別ADRでsidecar導入を再検討する。
+- Tauri application entrypoint
+- Python sidecar lifecycle
+- process start / stop / health supervision
+- OS credential storeへのbridge（必要な場合）
+- filesystem / native dialog等のOS integration
+- application packaging / updater integration
 
-### SQL
+### Rule
 
-DB schema / migrationはSQLファイルとして管理する。
+Character / Memory / Recall / Guardian / Provider等のdomain logicは、性能上の明確な理由がない限りRustへ実装しない。
 
-SQLはアプリケーションの主開発言語ではなく、永続化定義として扱う。
+Rust実装が必要になった場合は、Pythonとの責務境界を明示する。
 
-## Runtime boundary
+## SQL
+
+SQLite schema / migrationはSQLファイルとして管理する。
+
+SQLは主開発言語ではなく永続化定義として扱う。
+
+## Runtime architecture
 
 ```text
-┌───────────────────────────────────────┐
-│ React / TypeScript                    │
-│                                       │
-│ UI / editor / chat / debug views      │
-└─────────────────┬─────────────────────┘
-                  │ Tauri IPC / Channel
-                  ▼
-┌───────────────────────────────────────┐
-│ Rust / Tauri Core                     │
-│                                       │
-│ Provider / Character / Memory         │
-│ Recall / State / Guardian / Storage   │
-└──────────────┬───────────────┬────────┘
-               │               │
-               ▼               ▼
-            SQLite         LLM APIs
-                           ├─ Ollama
-                           ├─ OpenAI
-                           ├─ Gemini
-                           └─ xAI
+┌────────────────────────────────────────────┐
+│ React / TypeScript                         │
+│                                            │
+│ Chat / Character / Settings / Debug UI     │
+└────────────────────┬───────────────────────┘
+                     │ HTTP / streaming
+                     ▼
+┌────────────────────────────────────────────┐
+│ Python / FastAPI local service             │
+│                                            │
+│ Provider / Character / Memory / Recall     │
+│ State / Guardian / Storage / Evaluation    │
+└───────────────┬───────────────────┬────────┘
+                │                   │
+                ▼                   ▼
+             SQLite             LLM APIs
+                                ├─ Ollama
+                                ├─ OpenAI
+                                ├─ Gemini
+                                └─ xAI
 
-Development only:
-Python tools -> evaluation / dataset / training
+┌────────────────────────────────────────────┐
+│ Rust / Tauri shell                         │
+│                                            │
+│ Window / packaging / sidecar / OS bridge   │
+└────────────────────────────────────────────┘
 ```
 
-## Why not Python/FastAPI for the v0.1 runtime?
+## Tauri and Python sidecar
 
-PythonはLLM/ML周辺の開発速度に優れる一方、Tauriデスクトップアプリへ常駐sidecarとして組み込むと以下が増える。
+Desktop配布時はPython serviceをsidecarとして同梱する方向とする。
 
-- Python runtimeまたはfreeze済みbinaryの配布
-- OS/architecture別build
-- sidecar lifecycle管理
-- Rust/frontendとの追加IPC
-- crash / port / process管理
-- installer sizeとbuild pipelineの複雑化
+Tauriはexternal binary / sidecarの同梱と起動をサポートしており、Python CLIやAPI serverをfreezeして同梱する構成を取れる。
 
-v0.1のMemory / Recall / Guardianは、外部LLM APIとSQLiteを中心に構成できるためPython常駐backendを必須としない。
+v0.1では以下を検討する。
 
-## Why Rust for the application core?
+- PyInstaller等でPython serviceをplatform binary化
+- Tauriからsidecarを起動
+- localhostの固定/動的portまたはstdio/IPCの選定
+- health check
+- graceful shutdown
+- crash recovery
+- log routing
 
-- Tauriのnative側と同じ言語に統一できる
-- 別backend processを不要にできる
-- async HTTP / streaming / cancellationを一箇所で管理できる
-- API keyやDBをWebViewから分離できる
-- Windows / macOS / Linux向けに単一構成でbuildしやすい
-- SQLiteおよびvector searchをRust側から利用可能
+sidecar配布が実際に重大な問題となった場合のみ、Rust core化を再検討する。
 
-## Why TypeScript for the frontend?
+## Communication boundary
 
-- React/Vite/Tauriとの親和性が高い
-- Character / Memory / Validator等の複雑なUI modelで型安全性が重要
-- IPC payloadの型を管理しやすい
-- JavaScriptへの段階的な型追加ではなく最初からstrictにできる
+Frontendとbackendの責務を混ぜない。
 
-## Rules
+### TypeScript -> Python
 
-1. 本番runtimeにNode.js serverを追加しない。
-2. 本番runtimeにPython sidecarを追加しない。
-3. UIからLLM Providerへ直接API key付きrequestを送らない。
-4. Provider / Memory / Recall / Guardian等のdomain logicはRust側に置く。
-5. TypeScript側はpresentation / interactionを中心とする。
-6. Python prototypeが本番機能になる場合はRust移植を基本とする。
-7. 例外が必要になった場合はADRを追加する。
+- HTTP request/response
+- streaming response
+- schema化されたJSON
+
+### Rust -> Python
+
+- process lifecycle
+- startup configuration
+- optional native secret access
+
+### Forbidden by default
+
+- UIからProvider APIへ直接request
+- API keyをlocalStorageへ保存
+- Character/Recall/GuardianのロジックをReact componentへ実装
+- 同じdomain logicをPythonとRustへ二重実装
+
+## Type sharing
+
+PythonとTypeScript間の型ずれを防ぐ。
+
+候補:
+
+1. FastAPI OpenAPI schemaからTypeScript client/typeを生成
+2. Pydantic modelをbackend側のsource of truthとする
+3. API DTOと内部domain modelを必要に応じて分離する
+
+v0.1では **OpenAPI -> TypeScript生成** を第一候補とする。
 
 ## Initial language layout
 
 ```text
 character_chat_local/
-├─ src/                 # TypeScript / React
-├─ src-tauri/           # Rust / Tauri application core
-├─ migrations/          # SQL
-├─ tools/               # Python development/evaluation tools
+├─ src/
+│  └─ character_chat_local/     # Python core/backend
+├─ tests/                       # Python tests
+├─ frontend/                    # React / TypeScript
+├─ src-tauri/                   # minimal Rust / Tauri shell
+├─ migrations/                  # SQL
+├─ tools/                       # Python evaluation/training tools
 └─ docs/
    └─ adr/
 ```
+
+フロントエンド追加時に既存Pythonの `src/` と名前が衝突しないよう、TypeScript側は `frontend/` に置く。
 
 ## Consequences
 
 ### Positive
 
-- 配布runtimeがシンプルになる
-- Tauri/Rustとbackend logicを統合できる
-- secret / DB / filesystem境界が明確になる
-- TypeScript UIとRust coreの責務分離が明瞭になる
-- PythonのML ecosystemも開発用途では自由に使える
+- 既存Python実装を活かせる
+- Recall / Guardian / Memoryの実験速度を維持できる
+- ML/LLM ecosystemを直接利用できる
+- UIはTypeScriptで型安全に作れる
+- Rustを必要最小限にでき、3言語へdomain logicが分散するのを防げる
+- 将来の評価・fine-tuningとruntime coreの知識を共有できる
 
 ### Trade-offs
 
-- Recall/Memoryアルゴリズムの実験はPythonよりRustの方が反復速度が落ちる場合がある
-- Rust/TypeScript間の型同期が必要
-- 一部ML libraryを直接runtimeで使いたい場合に選択肢が狭くなる
+- Desktop配布時にPython sidecar packagingが必要
+- frontend/backend間の通信層が必要
+- platformごとのsidecar build/署名を考慮する必要がある
+- Rust単一binary構成よりinstaller sizeは大きくなる
 
-これらは、Pythonをoffline toolとして維持し、必要に応じて型生成や共通schema生成を導入することで緩和する。
+これらはv0.1では、実装速度・LLM機能の実験容易性を優先して受け入れる。
+
+## Rules
+
+1. Domain coreはPythonをsource of truthとする。
+2. FrontendはTypeScript strictで実装する。
+3. RustはTauri shell/native integrationに限定する。
+4. Provider API keyをFrontendへ永続化しない。
+5. Python API schemaをTypeScript側へ自動生成できる構成を目指す。
+6. SQL migrationをversion controlする。
+7. 性能問題は計測してからRust移植を検討する。
+8. Rustへ移植する場合もPython版と二重保守しない。
 
 ## Revisit conditions
 
-以下のいずれかが発生した場合、この決定を再検討する。
+以下の場合、このADRを再検討する。
 
-- Python専用ML libraryをruntimeで利用することがプロダクト上必須になった
-- ローカル推論をOllama以外のPython runtimeで直接ホストする必要が出た
-- Rust実装による開発コストがボトルネックになった
-- Tauri sidecar導入の利点が配布複雑性を明確に上回った
+- Python sidecarの配布・起動安定性がプロダクト品質を妨げる
+- Recall/Guardian処理がCPU性能上の明確なボトルネックになる
+- Python runtimeのメモリ使用量が許容できない
+- Mobile対応等によりFastAPI sidecar方式が成立しなくなる
+- Tauri/Rust側へ統合することで明確な運用上の利益が得られる
+
+## References
+
+- Tauri architecture: https://v2.tauri.app/concept/architecture/
+- Tauri sidecars: https://v2.tauri.app/develop/sidecar/
