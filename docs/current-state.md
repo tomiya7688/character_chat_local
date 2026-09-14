@@ -3,21 +3,23 @@
 最終更新: 2026-09-14
 
 ## Implemented
-- Python/FastAPI のローカルバックエンド骨格
+- Python/FastAPI のローカルバックエンド骨格と `/health`
 - 共通 `AIProvider` interface
 - Ollama provider
 - OpenAI互換 provider（OpenAI / xAI向け）
 - Gemini REST provider
 - SQLite persistence（character / conversation / message / memory / evaluation）
-- Character Core prompt builder
+- 最小Character prompt composition
 - trigger / entity / lexical / importance / confidence を使う軽量Recall
 - Draftを使うSecondary Recall
+- Secondary Recallで新規Memoryが見つかった場合の最大1回再生成
 - heuristic Guardian（meta leak / repetition / user-control / forbidden phrase）
-- Secondary Recall時の1回再生成、Guardian fail時の1回repair
-- FastAPI endpoints
-- unit tests
+- Recall / Guardian / Storage / orchestration のunit tests
+- pull request CI
 
 ## Explicitly Not Implemented Yet
+- Character / Memory / Chat の完全なHTTP API surface
+- Guardian fail時のRepair / Regenerate
 - Tauri / React UI
 - embedding / vector search
 - LLMによるMemory extraction / state extraction
@@ -37,4 +39,4 @@
 - Vector DBは初期依存にせず、Recall interfaceの内部実装として後から追加
 
 ## Current Validation Boundary
-Pure logic / SQLiteはunit test対象。Ollama / OpenAI / Gemini / xAI実接続はcredentialやローカルdaemonに依存するためCIではmockし、実API smokeは別途行う。
+Pure logic / SQLiteはunit test対象。Ollama / OpenAI / Gemini / xAI実接続はcredentialやローカルdaemonに依存するためCIではmockまたは未接続とし、実API smokeは別途行う。
