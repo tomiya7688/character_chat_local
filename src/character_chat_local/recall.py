@@ -23,22 +23,29 @@ class RecallEngine:
         memory_terms = _terms(memory.content)
         reasons: list[str] = []
         score = 0.0
+        matched = False
 
         trigger_matches = [trigger for trigger in memory.triggers if trigger.casefold() in query_fold]
         if trigger_matches:
             score += 0.35
+            matched = True
             reasons.append(f"trigger:{','.join(trigger_matches[:3])}")
 
         entity_matches = [entity for entity in memory.entities if entity.casefold() in query_fold]
         if entity_matches:
             score += 0.20
+            matched = True
             reasons.append(f"entity:{','.join(entity_matches[:3])}")
 
         if query_terms and memory_terms:
             overlap = len(query_terms & memory_terms) / len(query_terms | memory_terms)
             if overlap:
                 score += min(0.20, overlap * 0.6)
+                matched = True
                 reasons.append(f"lexical:{overlap:.2f}")
+
+        if not matched:
+            return RecallHit(memory=memory, score=0.0, reasons=["no_relevance_signal"])
 
         score += memory.importance * 0.15
         score += memory.confidence * 0.10
