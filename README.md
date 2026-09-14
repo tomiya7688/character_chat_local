@@ -6,7 +6,7 @@
 
 > Status: **v0.1 proposal / initial design**
 >
-> このREADMEは初期案です。実装を進めながら仕様・技術選定は変更します。
+> このREADMEは初期案です。実装を進めながら細部の仕様・技術選定は変更します。
 
 ## Goals
 
@@ -215,6 +215,8 @@ interface AIProvider {
 }
 ```
 
+実際のProvider domain logicはPython backend側をsource of truthとし、TypeScript側にはUI向けの型・clientを提供します。
+
 Ollamaは主要Providerとして、将来的に以下も扱います。
 
 - server endpoint
@@ -281,28 +283,38 @@ response_evaluations
 
 詳細なschemaは実装Issueで決定します。
 
-## Proposed Stack
+## v0.1 Language / Runtime Decision
 
-現時点の候補であり、確定ではありません。
+主開発言語は **Python + TypeScript** とします。
+
+- **Python 3.11+**: FastAPI local backend、Provider、Character、Memory、Recall、State、Guardian、Storage
+- **TypeScript (strict)**: React frontend、Chat UI、Character editor、Settings、Debug UI
+- **Rust**: Tauri shell、Python sidecar lifecycle、native OS integrationに限定
+- **SQL**: SQLite schema / migration
+
+詳細は [`docs/adr/0001-development-languages.md`](docs/adr/0001-development-languages.md) を参照してください。
 
 ### Desktop / UI
 
-- Tauri
+- Tauri 2
 - React
 - TypeScript
+- Vite
 - Tailwind CSS
 - shadcn/ui
 
-### Backend
+### Local Backend
 
-候補:
-
-- FastAPI / Python
-- またはTauri側に寄せたローカルサービス構成
+- Python 3.11+
+- FastAPI
+- Pydantic
+- async HTTP client
+- Tauri sidecarとしてdesktop appへ同梱する方向
 
 ### Storage
 
 - SQLite
+- SQL migrations
 - 必要に応じてvector search layerを追加
 
 ### LLM
@@ -311,6 +323,24 @@ response_evaluations
 - OpenAI API
 - Gemini API
 - xAI API
+
+### Language boundary
+
+```text
+React / TypeScript
+       │
+       │ HTTP / streaming
+       ▼
+Python / FastAPI
+       │
+       ├── SQLite
+       └── Ollama / Cloud LLM APIs
+
+Rust / Tauri
+       └── window / packaging / sidecar / native integration
+```
+
+Character / Memory / Recall / Guardian / Provider等のdomain logicはPython側をsource of truthとし、RustやReact componentへ二重実装しません。
 
 ## v0.1 Scope
 
@@ -348,6 +378,8 @@ repaired / preferred response
 ```
 
 このデータを将来的に、キャラクターチャット向けのLoRA、preference tuning、DPO等に利用できる形へ整備します。
+
+Pythonをruntime coreにも採用することで、評価・データ加工・学習実験との知識共有をしやすくします。
 
 ## Non-goals for the first version
 
