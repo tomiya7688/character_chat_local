@@ -66,16 +66,18 @@ class OllamaProvider(AIProvider):
             "stream": True,
             "options": {"temperature": temperature},
         }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    data = json.loads(line)
-                    text = data.get("message", {}).get("content", "")
-                    if text:
-                        yield text
+        async with (
+            httpx.AsyncClient(timeout=self.timeout) as client,
+            client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response,
+        ):
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                data = json.loads(line)
+                text = data.get("message", {}).get("content", "")
+                if text:
+                    yield text
 
 
 class OpenAICompatibleProvider(AIProvider):
@@ -118,24 +120,26 @@ class OpenAICompatibleProvider(AIProvider):
             "temperature": temperature,
             "stream": True,
         }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
+        async with (
+            httpx.AsyncClient(timeout=self.timeout) as client,
+            client.stream(
                 "POST",
                 f"{self.base_url}/v1/chat/completions",
                 headers=self.headers,
                 json=payload,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    raw = line[5:].strip()
-                    if not raw or raw == "[DONE]":
-                        continue
-                    data = json.loads(raw)
-                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                    if delta:
-                        yield delta
+            ) as response,
+        ):
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw or raw == "[DONE]":
+                    continue
+                data = json.loads(raw)
+                delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                if delta:
+                    yield delta
 
 
 class GeminiProvider(AIProvider):
@@ -195,21 +199,23 @@ class GeminiProvider(AIProvider):
             payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
 
         url = f"{self.base_url}/v1beta/models/{model}:streamGenerateContent?alt=sse"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream("POST", url, headers=self.headers, json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    raw = line[5:].strip()
-                    if not raw:
-                        continue
-                    data = json.loads(raw)
-                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                    for part in parts:
-                        text = part.get("text", "")
-                        if text:
-                            yield text
+        async with (
+            httpx.AsyncClient(timeout=self.timeout) as client,
+            client.stream("POST", url, headers=self.headers, json=payload) as response,
+        ):
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw:
+                    continue
+                data = json.loads(raw)
+                parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                for part in parts:
+                    text = part.get("text", "")
+                    if text:
+                        yield text
 
 
 class ProviderRegistry:
@@ -229,7 +235,7 @@ class ProviderRegistry:
         return sorted(self._providers)
 
     @classmethod
-    def from_env(cls) -> "ProviderRegistry":
+    def from_env(cls) -> ProviderRegistry:
         registry = cls(
             [OllamaProvider(os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))]
         )
