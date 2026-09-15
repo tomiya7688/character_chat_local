@@ -35,7 +35,9 @@ class AIProvider(ABC):
 class OllamaProvider(AIProvider):
     id = "ollama"
 
-    def __init__(self, base_url: str = "http://127.0.0.1:11434", timeout: float = 300.0):
+    def __init__(
+        self, base_url: str = "http://127.0.0.1:11434", timeout: float = 300.0
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
@@ -68,7 +70,9 @@ class OllamaProvider(AIProvider):
         }
         async with (
             httpx.AsyncClient(timeout=self.timeout) as client,
-            client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response,
+            client.stream(
+                "POST", f"{self.base_url}/api/chat", json=payload
+            ) as response,
         ):
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -100,10 +104,17 @@ class OpenAICompatibleProvider(AIProvider):
 
     async def list_models(self) -> list[ModelInfo]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(f"{self.base_url}/v1/models", headers=self.headers)
+            response = await client.get(
+                f"{self.base_url}/v1/models", headers=self.headers
+            )
         response.raise_for_status()
         return [
-            ModelInfo(id=item["id"], provider=self.id, display_name=item.get("id"), metadata=item)
+            ModelInfo(
+                id=item["id"],
+                provider=self.id,
+                display_name=item.get("id"),
+                metadata=item,
+            )
             for item in response.json().get("data", [])
         ]
 
@@ -161,7 +172,9 @@ class GeminiProvider(AIProvider):
 
     async def list_models(self) -> list[ModelInfo]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(f"{self.base_url}/v1beta/models", headers=self.headers)
+            response = await client.get(
+                f"{self.base_url}/v1beta/models", headers=self.headers
+            )
         response.raise_for_status()
         result: list[ModelInfo] = []
         for item in response.json().get("models", []):
@@ -196,7 +209,9 @@ class GeminiProvider(AIProvider):
             "generationConfig": {"temperature": temperature},
         }
         if system_parts:
-            payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+            payload["systemInstruction"] = {
+                "parts": [{"text": "\n\n".join(system_parts)}]
+            }
 
         url = f"{self.base_url}/v1beta/models/{model}:streamGenerateContent?alt=sse"
         async with (
@@ -211,7 +226,9 @@ class GeminiProvider(AIProvider):
                 if not raw:
                     continue
                 data = json.loads(raw)
-                parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                parts = (
+                    data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                )
                 for part in parts:
                     text = part.get("text", "")
                     if text:
