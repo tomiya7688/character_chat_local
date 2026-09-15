@@ -25,13 +25,17 @@ class RecallEngine:
         score = 0.0
         matched = False
 
-        trigger_matches = [trigger for trigger in memory.triggers if trigger.casefold() in query_fold]
+        trigger_matches = [
+            trigger for trigger in memory.triggers if trigger.casefold() in query_fold
+        ]
         if trigger_matches:
             score += 0.35
             matched = True
             reasons.append(f"trigger:{','.join(trigger_matches[:3])}")
 
-        entity_matches = [entity for entity in memory.entities if entity.casefold() in query_fold]
+        entity_matches = [
+            entity for entity in memory.entities if entity.casefold() in query_fold
+        ]
         if entity_matches:
             score += 0.20
             matched = True
