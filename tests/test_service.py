@@ -1,6 +1,11 @@
 from collections.abc import AsyncIterator
 
-from character_chat_local.models import CharacterCore, ChatMessage, MemoryRecord, ModelInfo
+from character_chat_local.models import (
+    CharacterCore,
+    ChatMessage,
+    MemoryRecord,
+    ModelInfo,
+)
 from character_chat_local.providers import AIProvider
 from character_chat_local.service import ChatService
 from character_chat_local.storage import Storage
