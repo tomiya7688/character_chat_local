@@ -91,7 +91,14 @@ class Storage:
         with self.connect() as db:
             db.execute(
                 "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                (message_id, conversation_id, message.role, message.content, provider, model),
+                (
+                    message_id,
+                    conversation_id,
+                    message.role,
+                    message.content,
+                    provider,
+                    model,
+                ),
             )
         return message_id
 
