@@ -31,7 +31,9 @@ class Guardian:
                 )
             )
 
-        sentences = [part.strip() for part in re.split(r"[。.!?！？\n]+", text) if part.strip()]
+        sentences = [
+            part.strip() for part in re.split(r"[。.!?！？\n]+", text) if part.strip()
+        ]
         if len(sentences) >= 3 and len(set(sentences)) < len(sentences):
             findings.append(
                 GuardianFinding(
