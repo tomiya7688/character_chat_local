@@ -3,7 +3,9 @@ from character_chat_local.models import CharacterCore
 
 
 def test_meta_leak_fails_guardian():
-    result = Guardian().validate("AIとして、その質問には答えられます。", CharacterCore(name="A"))
+    result = Guardian().validate(
+        "AIとして、その質問には答えられます。", CharacterCore(name="A")
+    )
     assert not result.passed
     assert any(finding.category == "meta_leak" for finding in result.findings)
 
