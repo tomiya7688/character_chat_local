@@ -82,7 +82,7 @@ export function CharacterEditor({ initial, onSave, onClose }: {
           <label>一人称<input value={data.first_person ?? ''} onChange={e => setData({ ...data, first_person: e.target.value })} placeholder="私" /></label>
           <label>二人称<input value={data.second_person ?? ''} onChange={e => setData({ ...data, second_person: e.target.value })} placeholder="あなた" /></label>
         </div>
-        {listFields.map(key => <label key={key}>{labels[key]}<textarea rows={2} value={data[key].join('\n')} onChange={e => setData({ ...data, [key]: e.target.value.split('\n') })} /></label>)}
+        {listFields.map(key => <label key={key}>{labels[key]}<textarea aria-label={labels[key]} rows={2} value={data[key].join('\n')} onChange={e => setData({ ...data, [key]: e.target.value.split('\n') })} /></label>)}
         <small>禁止フレーズは現在、文字列一致による検出です。意味的な禁止事項の完全な判定ではありません。</small>
       </fieldset>
       {error && <p role="alert" className="error">{error}</p>}

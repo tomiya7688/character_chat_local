@@ -119,7 +119,7 @@ export default function App() {
       </aside>
       <main>
         <section className="model-bar" aria-label="生成設定">
-          <label>Provider<select value={provider} disabled={locked || !connected} onChange={e => { manualRef.current = false; setManual(false); setModel(''); setProvider(e.target.value); }}>
+          <label>Provider<select aria-label="Provider" value={provider} disabled={locked || !connected} onChange={e => { manualRef.current = false; setManual(false); setModel(''); setProvider(e.target.value); }}>
             {!providers.length && <option value="">未設定</option>}{providers.map(id => <option key={id} value={id}>{id}</option>)}</select></label>
           <label className="model-field">モデル{manual
             ? <input aria-label="モデルID" value={model} maxLength={200} disabled={locked || !connected} onChange={e => setModel(e.target.value)} placeholder="インストール済みのモデルID" />

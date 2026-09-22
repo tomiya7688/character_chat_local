@@ -97,9 +97,10 @@ def test_backward_history_windows_use_global_rowids(tmp_path):
             {"limit": 501},
         ]:
             assert client.get(url, params=params).status_code == 422
-        assert client.get(
-            url, params={"before": older[0].position}
-        ).json()[0]["content"] == "0"
+        assert (
+            client.get(url, params={"before": older[0].position}).json()[0]["content"]
+            == "0"
+        )
 
 
 def test_ui_static_path_cannot_escape_to_data(tmp_path):

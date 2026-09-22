@@ -34,7 +34,9 @@ class TestProvider(AIProvider):
         messages: list[ChatMessage],
         temperature: float = 0.8,
     ) -> AsyncIterator[str]:
-        user = next(message.content for message in reversed(messages) if message.role == "user")
+        user = next(
+            message.content for message in reversed(messages) if message.role == "user"
+        )
         await asyncio.sleep(0.2)
         if model == "offline":
             raise ProviderError("DO_NOT_LEAK_PROVIDER_DETAIL")
@@ -77,12 +79,17 @@ async def seeded_lifespan(app):
                 storage._insert_message(
                     db,
                     conversation_id,
-                    ChatMessage(role="user" if i % 2 == 0 else "assistant", content=f"履歴 {i:04d}"),
+                    ChatMessage(
+                        role="user" if i % 2 == 0 else "assistant",
+                        content=f"履歴 {i:04d}",
+                    ),
                     "ollama" if i % 2 else None,
                     "test-small" if i % 2 else None,
                 )
                 if i % 50 == 0:
-                    storage._insert_message(db, other_id, ChatMessage(role="user", content="別会話"))
+                    storage._insert_message(
+                        db, other_id, ChatMessage(role="user", content="別会話")
+                    )
         app.state.history_fixture = conversation_id
         yield
 
