@@ -5,8 +5,18 @@ from collections.abc import Iterable
 from .models import ConversationSummary, StoredMessage, SummaryEntry
 
 _IMPORTANT = (
-    "約束", "覚えて", "名前は", "好き", "嫌い", "大切", "苦手",
-    "promise", "remember", "my name", "favorite", "allergic",
+    "約束",
+    "覚えて",
+    "名前は",
+    "好き",
+    "嫌い",
+    "大切",
+    "苦手",
+    "promise",
+    "remember",
+    "my name",
+    "favorite",
+    "allergic",
 )
 
 
@@ -40,7 +50,9 @@ class SummaryEngine:
             del recent[:count]
         return result, recent
 
-    def _fold(self, summary: ConversationSummary, messages: list[StoredMessage]) -> None:
+    def _fold(
+        self, summary: ConversationSummary, messages: list[StoredMessage]
+    ) -> None:
         entries = list(summary.entries)
         for message in messages:
             if message.position <= summary.through_position:
@@ -49,18 +61,20 @@ class SummaryEngine:
             important = message.role == "user" and any(
                 word in content.casefold() for word in _IMPORTANT
             )
-            entries.append(SummaryEntry(
-                source_message_id=message.id,
-                position=message.position,
-                role=message.role,
-                excerpt=content[:160],
-                priority=2 if important else int(message.role == "user"),
-            ))
+            entries.append(
+                SummaryEntry(
+                    source_message_id=message.id,
+                    position=message.position,
+                    role=message.role,
+                    excerpt=content[:160],
+                    priority=2 if important else int(message.role == "user"),
+                )
+            )
             summary.through_position = message.position
             summary.covered_messages += 1
         # Preserve an early anchor, important user statements, and recent extracts.
         anchor = entries[:1]
-        recent = entries[-self.max_entries // 2:]
+        recent = entries[-self.max_entries // 2 :]
         chosen = {entry.source_message_id: entry for entry in [*anchor, *recent]}
         ranked = sorted(entries, key=lambda e: (e.priority, e.position), reverse=True)
         for entry in ranked:

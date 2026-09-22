@@ -7,8 +7,12 @@ import httpx
 
 from .guardian import Guardian
 from .models import (
-    CharacterCore, ChatMessage, ChatRunResult, ConversationSummary,
-    GuardianResult, RecallBundle,
+    CharacterCore,
+    ChatMessage,
+    ChatRunResult,
+    ConversationSummary,
+    GuardianResult,
+    RecallBundle,
 )
 from .prompting import DEFAULT_PROMPT_BYTES, build_messages
 from .providers import AIProvider, ProviderError
@@ -24,11 +28,17 @@ class QualityRejected(RuntimeError):
         self.guardian = guardian
 
 
-async def _collect(provider: AIProvider, model: str, messages: list[ChatMessage], temperature: float) -> str:
+async def _collect(
+    provider: AIProvider, model: str, messages: list[ChatMessage], temperature: float
+) -> str:
     parts: list[str] = []
     length = 0
     try:
-        async with aclosing(provider.stream_chat(model=model, messages=messages, temperature=temperature)) as stream:
+        async with aclosing(
+            provider.stream_chat(
+                model=model, messages=messages, temperature=temperature
+            )
+        ) as stream:
             async for part in stream:
                 if not isinstance(part, str):
                     raise ProviderError("provider returned an invalid text chunk")
@@ -42,7 +52,13 @@ async def _collect(provider: AIProvider, model: str, messages: list[ChatMessage]
 
 
 class ChatService:
-    def __init__(self, storage: Storage, *, max_prompt_bytes: int = DEFAULT_PROMPT_BYTES, timeout: float = 300.0):
+    def __init__(
+        self,
+        storage: Storage,
+        *,
+        max_prompt_bytes: int = DEFAULT_PROMPT_BYTES,
+        timeout: float = 300.0,
+    ):
         self.storage = storage
         self.recall = RecallEngine()
         self.guardian = Guardian()
@@ -70,7 +86,11 @@ class ChatService:
         if conversation_id:
             if history is not None:
                 raise ValueError("persisted conversations use server-owned history")
-            with self.storage.context_snapshot(conversation_id) as (conversation, saved, rows):
+            with self.storage.context_snapshot(conversation_id) as (
+                conversation,
+                saved,
+                rows,
+            ):
                 if conversation.character_id != character.id:
                     raise ValueError("character does not match conversation")
                 summary, recent = self.summary.prepare(saved, rows)
@@ -83,13 +103,19 @@ class ChatService:
 
         async def generate(hits, purpose: str, repair: str | None = None):
             messages = build_messages(
-                character=character, history=history, user_input=user_input,
-                recalled=hits, summary=summary, repair=repair,
+                character=character,
+                history=history,
+                user_input=user_input,
+                recalled=hits,
+                summary=summary,
+                repair=repair,
                 max_prompt_bytes=self.max_prompt_bytes,
             )
             text = await _collect(provider, model, messages, temperature)
             result = self.guardian.validate(text, character)
-            attempts.append({"purpose": purpose, "text": text, "guardian": result.model_dump()})
+            attempts.append(
+                {"purpose": purpose, "text": text, "guardian": result.model_dump()}
+            )
             return text, result
 
         try:
@@ -98,30 +124,47 @@ class ChatService:
                 text = draft
                 if draft:
                     secondary = self.recall.recall(
-                        draft, memories, exclude_ids={hit.memory.id for hit in primary.hits}
+                        draft,
+                        memories,
+                        exclude_ids={hit.memory.id for hit in primary.hits},
                     )
                 hits = [*primary.hits, *secondary.hits]
                 if secondary.hits:
                     text, guardian = await generate(hits, "secondary_recall")
                 repaired = not guardian.passed
                 if repaired:
-                    repair = "; ".join(f"{f.category}: {f.reason}" for f in guardian.findings)
+                    repair = "; ".join(
+                        f"{f.category}: {f.reason}" for f in guardian.findings
+                    )
                     text, guardian = await generate(hits, "quality_repair", repair)
         except TimeoutError as exc:
             raise ProviderError("generation timed out") from exc
         metadata = {"provider": provider.id, "model": model, "attempts": attempts}
         if not guardian.passed:
-            evaluation_id = self.storage.save_evaluation(conversation_id, draft, "", guardian, metadata)
+            evaluation_id = self.storage.save_evaluation(
+                conversation_id, draft, "", guardian, metadata
+            )
             raise QualityRejected(evaluation_id, guardian)
         if conversation is not None:
             self.storage.commit_turn(
-                conversation=conversation, user_input=user_input, text=text,
-                provider=provider.id, model=model, summary=summary, draft=draft,
-                guardian=guardian, metadata=metadata,
+                conversation=conversation,
+                user_input=user_input,
+                text=text,
+                provider=provider.id,
+                model=model,
+                summary=summary,
+                draft=draft,
+                guardian=guardian,
+                metadata=metadata,
             )
         else:
             self.storage.save_evaluation(None, draft, text, guardian, metadata)
         return ChatRunResult(
-            text=text, draft=draft, primary_recall=primary, secondary_recall=secondary,
-            guardian=guardian, regenerated_for_recall=bool(secondary.hits), repaired=repaired,
+            text=text,
+            draft=draft,
+            primary_recall=primary,
+            secondary_recall=secondary,
+            guardian=guardian,
+            regenerated_for_recall=bool(secondary.hits),
+            repaired=repaired,
         )

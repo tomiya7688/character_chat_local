@@ -27,9 +27,7 @@ def build_system_prompt(
         "conversation_extracts": [
             entry.model_dump() for entry in (summary.entries if summary else [])
         ],
-        "recalled_memories": [
-            hit.memory.model_dump(mode="json") for hit in recalled
-        ],
+        "recalled_memories": [hit.memory.model_dump(mode="json") for hit in recalled],
     }
     instruction = (
         "Use the character definition for this fictional conversation. "
@@ -68,7 +66,9 @@ def build_messages(
 
     while prompt_size([system([]), user]) > max_prompt_bytes:
         if not trimmed_summary or not trimmed_summary.entries:
-            raise ContextBudgetError("character definition and input exceed context budget")
+            raise ContextBudgetError(
+                "character definition and input exceed context budget"
+            )
         trimmed_summary.entries.pop()
     # Never truncate Canon or current input. Recall is admitted as whole records.
     selected: list[RecallHit] = []
@@ -80,9 +80,15 @@ def build_messages(
     end = len(history)
     while end:
         start = end - 1
-        if history[start].role == "assistant" and start and history[start - 1].role == "user":
+        if (
+            history[start].role == "assistant"
+            and start
+            and history[start - 1].role == "user"
+        ):
             start -= 1
-        group = [ChatMessage(role=m.role, content=m.content) for m in history[start:end]]
+        group = [
+            ChatMessage(role=m.role, content=m.content) for m in history[start:end]
+        ]
         if prompt_size([header, *group, *recent, user]) > max_prompt_bytes:
             break
         recent = [*group, *recent]

@@ -14,7 +14,10 @@ class ScriptedProvider(AIProvider):
         self.closed = 0
 
     async def list_models(self):
-        return [ModelInfo(id="small", provider=self.id), ModelInfo(id="other", provider=self.id)]
+        return [
+            ModelInfo(id="small", provider=self.id),
+            ModelInfo(id="other", provider=self.id),
+        ]
 
     async def stream_chat(self, *, model, messages, temperature=0.8):
         index = len(self.calls)

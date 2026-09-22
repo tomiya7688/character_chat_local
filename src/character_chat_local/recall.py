@@ -26,7 +26,8 @@ class RecallEngine:
         score = 0.0
         matched = False
         trigger_matches = [
-            trigger for trigger in memory.triggers
+            trigger
+            for trigger in memory.triggers
             if trigger.strip() and trigger.casefold() in query_fold
         ]
         if trigger_matches:
@@ -34,7 +35,8 @@ class RecallEngine:
             matched = True
             reasons.append(f"trigger:{','.join(trigger_matches[:3])}")
         entity_matches = [
-            entity for entity in memory.entities
+            entity
+            for entity in memory.entities
             if entity.strip() and entity.casefold() in query_fold
         ]
         if entity_matches:
@@ -67,10 +69,13 @@ class RecallEngine:
             return RecallBundle()
         excluded = exclude_ids or set()
         candidates = [
-            self.score(query, memory) for memory in memories if memory.id not in excluded
+            self.score(query, memory)
+            for memory in memories
+            if memory.id not in excluded
         ]
         candidates = [
-            hit for hit in candidates
+            hit
+            for hit in candidates
             if hit.score > 0 and hit.score >= hit.memory.activation_threshold
         ]
         candidates.sort(key=lambda hit: hit.score, reverse=True)
