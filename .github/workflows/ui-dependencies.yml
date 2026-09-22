@@ -1,0 +1,44 @@
+name: Prepare WebUI dependencies
+
+on:
+  push:
+    branches: [feat/webui-chat]
+    paths: [.github/workflows/ui-dependencies.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve frontend lockfile
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-deps" evidence
+          cat > "$RUNNER_TEMP/ui-deps/package.json" <<'JSON'
+          {
+            "name": "character-chat-webui",
+            "version": "0.1.0",
+            "private": true,
+            "type": "module",
+            "engines": {"node": ">=22.12.0"},
+            "dependencies": {"react":"19.3.0","react-dom":"19.3.0","react-markdown":"10.1.0"},
+            "devDependencies": {"@playwright/test":"1.63.0","@types/node":"^22.0.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0","typescript":"~5.9.3","vite":"^8.0.0"}
+          }
+          JSON
+          npm install --prefix "$RUNNER_TEMP/ui-deps" --package-lock-only --ignore-scripts --no-audit --no-fund
+          cp "$RUNNER_TEMP/ui-deps/package-lock.json" evidence/package-lock.json
+          git archive --format=tar.gz HEAD > evidence/source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webui-dependency-preparation
+          path: evidence/
+          retention-days: 3
