@@ -16,6 +16,7 @@ from .models import CharacterCore, MemoryRecord
 from .providers import ProviderError, ProviderRegistry
 from .service import ChatService, QualityRejected
 from .storage import ConversationConflict, Storage
+from .webui import mount_webui, public_ui_request
 
 
 class ConversationCreate(BaseModel):
@@ -37,6 +38,7 @@ def create_app(
     registry: ProviderRegistry | None = None,
     allowed_origins: tuple[str, ...] = (),
     api_token: str | None = None,
+    ui_directory: str | Path | None = None,
 ) -> FastAPI:
     """Local-only API. Instantiation/import does not open a database or a provider."""
 
@@ -84,7 +86,12 @@ def create_app(
             )
         token = getattr(app.state, "api_token", None)
         preflight = request.method == "OPTIONS" and origin in allowed_origins
-        if token and request.url.path != "/health" and not preflight:
+        if (
+            token
+            and request.url.path != "/health"
+            and not preflight
+            and not public_ui_request(request)
+        ):
             supplied = request.headers.get("authorization", "")
             if not hmac.compare_digest(supplied.encode(), f"Bearer {token}".encode()):
                 return JSONResponse(
@@ -196,9 +203,16 @@ def create_app(
         conversation_id: str,
         after: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=500),
+        before: int | None = Query(None, ge=1),
+        tail: bool = False,
     ):
         conversation_or_404(conversation_id)
-        return storage().list_message_records(conversation_id, after=after, limit=limit)
+        try:
+            return storage().list_message_records(
+                conversation_id, after=after, limit=limit, before=before, tail=tail
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
 
     @app.get("/conversations/{conversation_id}/summary")
     def get_summary(conversation_id: str):
@@ -287,6 +301,7 @@ def create_app(
             "regenerated_for_recall": result.regenerated_for_recall,
         }
 
+    mount_webui(app, ui_directory)
     return app
 
 

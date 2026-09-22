@@ -9,7 +9,9 @@ python -m pip install -e '.[dev]'
 python -m uvicorn character_chat_local.api:app --host 127.0.0.1 --port 8765 --workers 1
 ```
 
-`http://127.0.0.1:8765/docs` はAPI操作用のSwagger UI。チャット用React UIは未実装。
+`http://127.0.0.1:8765/docs` はAPI操作用のSwagger UI。
+React UIはfrontendをbuildしてから `http://127.0.0.1:8765/ui/` で利用する。
+ビルド・開発サーバー・ブラウザテストの手順は [WebUI](webui.md) を参照。
 Ollama daemonと会話用modelは別途必要。`GET /providers/ollama/models` で利用可能なmodel IDを確認する。
 
 ## API flow
@@ -29,7 +31,7 @@ Provider/modelは毎回選べる。履歴とキャラクターの対応はサー
 |---|---|
 | `GET /characters`, `GET /characters/{id}`, `PUT /characters/{id}` | Character一覧・取得・更新（PUTはIDを含む完全な定義） |
 | `GET /conversations` | 会話一覧 |
-| `GET /conversations/{id}/messages?after=0&limit=100` | 昇順の履歴。次ページは最後のpositionをafterへ渡す。limitは最大500 |
+| `GET /conversations/{id}/messages?after=0&limit=100` | 昇順の履歴。次ページは最後のpositionをafterへ渡す。`tail=true`は最新、`before=<position>`は直前のページ（どちらも返却順は昇順）。cursorの併用は禁止。limitは最大500 |
 | `GET /conversations/{id}/summary` | 出典付き抽出要約と処理済み件数 |
 | `GET /characters/{id}/memories`, `POST /characters/{id}/memories` | 構造化Memory。source指定時は同一characterのmessage IDが必要 |
 | `GET /providers`, `GET /providers/{id}/models` | 設定済みProvider / model一覧。credentialは返さない |
@@ -44,7 +46,7 @@ Provider/modelは毎回選べる。履歴とキャラクターの対応はサー
 - Ollama: `OLLAMA_BASE_URL`（既定 `http://127.0.0.1:11434`）。
 - OpenAI: `OPENAI_API_KEY`, 任意の `OPENAI_BASE_URL`（API root、`/v1`を含めない）。
 - xAI: `XAI_API_KEY`, 任意の `XAI_BASE_URL`（API root）。Gemini: `GEMINI_API_KEY`。
-- 任意のローカル認証: `CHARACTER_CHAT_API_TOKEN`。設定時は `/health` 以外に `Authorization: Bearer <token>` が必要。
+- 任意のローカル認証: `CHARACTER_CHAT_API_TOKEN`。設定時はAPIに `Authorization: Bearer <token>` が必要。`/health` と `GET/HEAD /ui[/...]` の静的シェルだけは認証不要（Host/Origin確認は維持）。
 
 APIキーはbackendの環境変数から渡す。DBやfrontendに設定用credentialを保存しない。
 Host/Origin/Fetch Metadataチェックはブラウザからの不意のアクセスを抑えるもので、OSの他プロセスに対する認証の代わりではない。

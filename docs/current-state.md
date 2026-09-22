@@ -1,8 +1,14 @@
 # Current State
 
-最終更新: 2026-09-22。v1.0の完成宣言ではなく、backendの現在の実装範囲。
+対象: `feat/webui-chat`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
 
 ## Implemented
+- React / Vite / TypeScript strictのWebUI。キャラクター定義JSONの読込/編集、モデル選択/直接指定、会話開始/再開、品質合格後の表示、Markdown/code、出典付き要約の確認。
+- 長期履歴は最新100メッセージから前後に移動する。DB側でwindowを制限し、他会話が挟まるglobal rowidにも対応。
+- 品質不合格時は入力を保持。通信結果が不明な場合は自動再送せず、履歴再取得を要求する。IME変換中の誤送信と重複submitを抑止。
+- APIトークンはタブのメモリのみ。静的シェルは認証前に読めるが、APIは保護し、Host/Origin確認を維持する。
+- build済みWebUIをFastAPI `/ui/` とwheelから配信。外部画像の自動読込・raw HTMLは無効。
+- Playwrightの実ブラウザテストをCIへ追加（実API/SQLite + 模擬Provider）。desktop/mobileのスクリーンショットをartifactへ出力。
 - FastAPI: Character作成/取得/更新、会話作成/一覧、履歴ページ取得、Memory登録/取得、Provider/model一覧、チャット、要約取得。
 - Character Coreの全設定をプロンプトへ注入。履歴はサーバーのSQLiteを原本とする。
 - Primary Recall、DraftによるSecondary Recall、最大1回の追加Recall再生成と最大1回の品質修正再生成。
@@ -14,10 +20,10 @@
 - turnの原子的保存、revision競合検出、同一会話の並列生成拒否、旧DBへの追加migration、DB接続の明示close。
 - Provider streamの正常終了確認、途中切断・error eventの拒否、生成timeoutと出力上限。
 - localhost Host/Origin/Fetch Metadata確認、任意のAPIトークン、公開エラーからのProvider詳細除去。
-- 51テスト。うち1本はHTTP経由1,000往復、途中再起動、Provider/model切替、出典・DB整合性・プロンプト上限の決定的テスト。
+- Pythonの回帰テスト。うち1本はHTTP経由1,000往復、途中再起動、Provider/model切替、出典・DB整合性・プロンプト上限の決定的テスト。
 
 ## Explicitly Not Implemented / Unverified
-- ReactチャットUI、AIによるUIテスト、Tauri配布、かどか本人による使用テスト。
+- Tauri配布、かどか本人による使用テスト。UIの追加要件（Stop/streaming/Edit/retry等）は未完了。
 - 実Ollama / cloud APIへの接続確認と、実モデルで1,000往復した品質・安定性。
 - 小型モデルの性能評価、LLMによる意味的な要約・Memory/State自動抽出、vector検索。
 - 厳密なモデル別tokenizer、context window検出、出力予約込みのモデル別budget調整。
@@ -35,3 +41,9 @@ HTTPチャットは検証完了までbufferし、合格した最終応答だけ�
 ## Architecture / Validation
 設計の原典は `docs/adr/0002-local-webui-desktop-wrapper.md`。
 起動・API契約・検証コマンドは `docs/development.md`。実行結果と対象commitはPR/CIで確認する。
+
+## WebUI limitations
+一覧はCharacter/Conversationとも最大500件。履歴そのものは100件単位で遡れる。
+Character Coreの独自JSON形式のみ対応（外部character-card形式の互換読込ではない）。
+入力中の下書きは画面再読込や会話切替では失われる。確定履歴だけがDBへ保存される。
+ブラウザE2Eの合格を、実LLMの出力品質や人間による使用承認として扱わない。
