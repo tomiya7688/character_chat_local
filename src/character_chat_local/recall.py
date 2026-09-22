@@ -13,7 +13,8 @@ def _terms(text: str) -> set[str]:
 
 
 def _approx_tokens(text: str) -> int:
-    return max(1, len(text) // 4)
+    # Conservative UTF-8 byte proxy, not an exact tokenizer for every provider.
+    return max(1, len(text.encode("utf-8")))
 
 
 class RecallEngine:
@@ -24,33 +25,30 @@ class RecallEngine:
         reasons: list[str] = []
         score = 0.0
         matched = False
-
         trigger_matches = [
-            trigger for trigger in memory.triggers if trigger.casefold() in query_fold
+            trigger for trigger in memory.triggers
+            if trigger.strip() and trigger.casefold() in query_fold
         ]
         if trigger_matches:
             score += 0.35
             matched = True
             reasons.append(f"trigger:{','.join(trigger_matches[:3])}")
-
         entity_matches = [
-            entity for entity in memory.entities if entity.casefold() in query_fold
+            entity for entity in memory.entities
+            if entity.strip() and entity.casefold() in query_fold
         ]
         if entity_matches:
             score += 0.20
             matched = True
             reasons.append(f"entity:{','.join(entity_matches[:3])}")
-
         if query_terms and memory_terms:
             overlap = len(query_terms & memory_terms) / len(query_terms | memory_terms)
             if overlap:
                 score += min(0.20, overlap * 0.6)
                 matched = True
                 reasons.append(f"lexical:{overlap:.2f}")
-
         if not matched:
             return RecallHit(memory=memory, score=0.0, reasons=["no_relevance_signal"])
-
         score += memory.importance * 0.15
         score += memory.confidence * 0.10
         reasons.append(f"importance:{memory.importance:.2f}")
@@ -65,27 +63,23 @@ class RecallEngine:
         token_budget: int = 1200,
         exclude_ids: set[str] | None = None,
     ) -> RecallBundle:
+        if token_budget <= 0:
+            return RecallBundle()
         excluded = exclude_ids or set()
         candidates = [
-            self.score(query, memory)
-            for memory in memories
-            if memory.id not in excluded
+            self.score(query, memory) for memory in memories if memory.id not in excluded
         ]
         candidates = [
-            hit for hit in candidates if hit.score >= hit.memory.activation_threshold
+            hit for hit in candidates
+            if hit.score > 0 and hit.score >= hit.memory.activation_threshold
         ]
         candidates.sort(key=lambda hit: hit.score, reverse=True)
-
         selected: list[RecallHit] = []
         used = 0
         for hit in candidates:
             cost = _approx_tokens(hit.memory.content)
-            if selected and used + cost > token_budget:
-                continue
-            if cost > token_budget and selected:
+            if used + cost > token_budget:
                 continue
             selected.append(hit)
             used += cost
-            if used >= token_budget:
-                break
         return RecallBundle(hits=selected, approx_tokens=used)

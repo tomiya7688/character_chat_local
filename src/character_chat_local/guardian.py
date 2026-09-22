@@ -12,46 +12,31 @@ class Guardian:
     def validate(self, text: str, character: CharacterCore) -> GuardianResult:
         findings: list[GuardianFinding] = []
         folded = text.casefold()
-
+        if not text.strip():
+            findings.append(GuardianFinding(
+                category="formatting_break", severity=1.0, reason="empty response"
+            ))
         if any(phrase in folded for phrase in _META_PHRASES):
-            findings.append(
-                GuardianFinding(
-                    category="meta_leak",
-                    severity=0.9,
-                    reason="meta phrase detected",
-                )
-            )
-
+            findings.append(GuardianFinding(
+                category="meta_leak", severity=0.9, reason="meta phrase detected"
+            ))
         if _USER_CONTROL.search(text):
-            findings.append(
-                GuardianFinding(
-                    category="user_control",
-                    severity=0.8,
-                    reason="response appears to decide the user's action",
-                )
-            )
-
-        sentences = [
-            part.strip() for part in re.split(r"[。.!?！？\n]+", text) if part.strip()
-        ]
+            findings.append(GuardianFinding(
+                category="user_control", severity=0.8,
+                reason="response appears to decide the user's action",
+            ))
+        sentences = [part.strip() for part in re.split(r"[。.!?！？\n]+", text) if part.strip()]
         if len(sentences) >= 3 and len(set(sentences)) < len(sentences):
-            findings.append(
-                GuardianFinding(
-                    category="repetition",
-                    severity=0.5,
-                    reason="duplicate sentence detected",
-                )
-            )
-
+            findings.append(GuardianFinding(
+                category="repetition", severity=0.7, reason="duplicate sentence detected"
+            ))
         for forbidden in character.forbidden:
-            if forbidden and forbidden.casefold() in folded:
-                findings.append(
-                    GuardianFinding(
-                        category="character_break",
-                        severity=0.9,
-                        reason="forbidden character constraint appeared",
-                    )
-                )
-
-        passed = not any(finding.severity >= 0.7 for finding in findings)
-        return GuardianResult(passed=passed, findings=findings)
+            if forbidden.strip() and forbidden.casefold() in folded:
+                findings.append(GuardianFinding(
+                    category="character_break", severity=0.9,
+                    reason="forbidden character constraint appeared",
+                ))
+        return GuardianResult(
+            passed=not any(finding.severity >= 0.7 for finding in findings),
+            findings=findings,
+        )

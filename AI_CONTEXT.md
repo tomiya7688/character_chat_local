@@ -1,60 +1,43 @@
 # AI Context
 
-> AI開発時の小さい入口。`ai-context-reducer` の Core 方針をこのrepo向けに適用する。
-> 詳細仕様をここへ複製せず、必要な原典へルーティングする。
-
-## Project
-- Name: `character_chat_local`
-- Purpose: 長期会話でも人格・設定・関係性が崩れにくいキャラクターチャット基盤
-- Runtime: Python 3.11+ / FastAPI / SQLite。Desktop UIは将来 Tauri + React を予定。
+`ai-context-reducer` の最小コアを適用する開発入口。仕様をここへ複製しない。
 
 ## Source of Truth
-- Product / architecture intent: `README.md`
-- Current implementation state: `docs/current-state.md`
-- Change routing: `docs/change-routing.md`
-- Tasks / acceptance: GitHub Issues
-- Executable truth: `src/` and `tests/`
+- 設計判断: `docs/adr/` の該当ADR。製品の狙い: `README.md`。
+- 実装済み / 未検証: `docs/current-state.md`。
+- 変更対象 / 検証: `docs/change-routing.md`、対象sourceとtests。
+- 起動・API・設定: `docs/development.md`。
+- 現在タスク / Acceptance: 対応するGitHub Issue。
 
-## Read First
-1. Current task / Issue
-2. `docs/current-state.md`
-3. `docs/change-routing.md` の該当行
-4. target source -> matching tests
-5. 必要な場合だけ `README.md` の関連節
+## Working Rules
+- Goal / Required / Acceptance が揃ったら探索を止める。
+- Search first, read second。target source -> matching tests -> 必要な原典。
+- 全Issues、全履歴、無関係な文書を一括で読まない。
+- 要約は索引。食い違いは原典・実行結果で確認する。
+- unrelated refactorを混ぜない。shared contract変更時は全テストへ広げる。
+- 複数セッションがremoteを更新するため、編集前にfetchしcommit要約・変更ファイルを確認する。
+  他者の変更をforce pushや無条件の置換で消さない。
 
-## Ignore Normally
-- unrelated Issues / history
-- generated files / caches / local DB
-- 成功ログ全文
-- UI設計（UI taskでない限り）
-
-## Current Task Rules
-- Goal / Required / Acceptance が揃ったら追加探索を止める。
-- Search first, read second。
-- unrelated refactor を混ぜない。
-- 要約と原典が衝突したら source / tests / current Issue を優先する。
-- 変更後は最小のtargeted validationを先に実行し、shared contract変更時だけ範囲を広げる。
-
-## Important Constraints
-- Character Core / Canon と動的Memory・Stateを混同しない。
-- 明示事実と推測Memoryを同一扱いしない。
-- Provider固有仕様を会話・記憶エンジンへ漏らさない。
-- SecretをDB、ログ、export対象へ平文保存しない。
-- Secondary Recall / Guardian は無限再生成を起こさない。
+## Invariants
+- Character Core / Canonを会話要約や推測で上書きしない。
+- 要約は会話単位。Memoryのsourceは同一characterに所属する。
+- 不合格draftを公開APIや確定会話へ返さない。評価ログとは分離する。
+- 再生成は有限。通常1回、追加Recall1回、品質修正1回まで。
+- 保存はturn単位で原子的に行う。推論中にSQLite書込lockを保持しない。
+- Credentialはbackendの設定。frontend、DB、エラーへ設定値を流さない。
+- WebUIが本体、Tauriは後続の配布ラッパー。domain logicをUIへ移さない。
 
 ## Validation
-- `python -m pytest -q`
-- `ruff check .`
-- Provider実APIはcredentialがある場合のみsmoke。未実施ならUnverifiedとして報告する。
+- まず `docs/change-routing.md` の該当テスト。
+- 共通契約変更: `python -m pytest -q`、`python -m ruff check .`、`python -m ruff format --check .`。
+- CIはPython 3.11 / 3.12、1,000往復の決定的HTTPテスト、wheelインストール後のsmoke。
+- 成功ログ全文ではなく、結果・対象commit・未検証領域を報告する。
+- モック成功を実モデル品質・GPU性能・UI合格として扱わない。
 
-## Context Priority
-- P0: current Issue / acceptance / invariant
-- P1: target source / tests
-- P2: direct dependencies
-- P3: README / design docs
-- P4: history / unrelated Issues
+## Ignore Normally
+`.venv/`, caches, `data/`, DB/WAL files, `dist/`, generated reports, unrelated history。
 
-## Upstream Method
-導入方針の参照元: https://github.com/tomiya7688/ai-context-reducer
-
-このrepoは小規模なので、現時点では Core + Current State + Change Routing + targeted validation のみ採用する。Source Structure Index、巨大なContext Pack、階層AIガイドはまだ導入しない。
+## Adoption
+参照: https://github.com/tomiya7688/ai-context-reducer
+採用: Core入口、Current State、Change Routing、Remote Delta、targeted validation、artifact smoke。
+見送り: 巨大索引、call graph、階層ガイド、大きいContext Pack。小規模repoでは維持コストが上回る。

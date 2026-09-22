@@ -37,7 +37,7 @@ class ModelInfo(BaseModel):
 
 class CharacterCore(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     first_person: str | None = None
     second_person: str | None = None
     speech_style: list[str] = Field(default_factory=list)
@@ -110,3 +110,31 @@ class ChatRunResult(BaseModel):
     guardian: GuardianResult
     regenerated_for_recall: bool = False
     repaired: bool = False
+
+
+class StoredMessage(ChatMessage):
+    id: str
+    position: int
+    provider: str | None = None
+    model: str | None = None
+
+
+class ConversationInfo(BaseModel):
+    id: str
+    character_id: str
+    revision: int = 0
+
+
+class SummaryEntry(BaseModel):
+    source_message_id: str
+    position: int
+    role: Role
+    excerpt: str
+    priority: int = 0
+
+
+class ConversationSummary(BaseModel):
+    strategy: Literal["extractive-v1"] = "extractive-v1"
+    through_position: int = 0
+    covered_messages: int = 0
+    entries: list[SummaryEntry] = Field(default_factory=list)

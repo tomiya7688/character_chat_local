@@ -6,7 +6,7 @@
 
 > Status: **v0.1 proposal / initial design**
 >
-> このREADMEは初期案です。実装を進めながら仕様・技術選定は変更します。
+> このREADMEは初期案です。実装を進めながら細部の仕様・技術選定は変更します。
 
 ## Goals
 
@@ -40,6 +40,31 @@ Ollamaを主要な実行環境として扱い、可能な処理はローカル�
 ### Character-first
 
 一般的なAIチャットではなく、**人格・設定・関係性・継続性**を優先したキャラクターチャットとして設計します。
+
+### Local WebUI + Desktop Wrapper
+
+アプリケーション本体は **Python/FastAPI + React/TypeScript のローカルWebUI** として成立させます。
+
+Tauriは必須のdomain runtimeではなく、デスクトップ配布、Python backendの起動管理、credential store、native file picker等のOS統合を担当するラッパーとして利用します。
+
+```text
+Browser or Tauri WebView
+        │
+        │ HTTP / streaming
+        ▼
+Python / FastAPI
+        │
+        ├─ Character / Memory / Recall / Guardian
+        ├─ SQLite
+        └─ Ollama / Cloud LLM APIs
+
+Tauri
+  └─ window / sidecar / native integration / packaging
+```
+
+そのため、Tauriを使わず通常のブラウザからlocalhostへアクセスする実行モードも第一級として維持します。
+
+詳細は [`docs/adr/0002-local-webui-desktop-wrapper.md`](docs/adr/0002-local-webui-desktop-wrapper.md) を参照してください。
 
 ## High-level Architecture
 
@@ -215,6 +240,8 @@ interface AIProvider {
 }
 ```
 
+実際のProvider domain logicはPython backend側をsource of truthとし、TypeScript側にはUI向けの型・clientを提供します。
+
 Ollamaは主要Providerとして、将来的に以下も扱います。
 
 - server endpoint
@@ -281,28 +308,39 @@ response_evaluations
 
 詳細なschemaは実装Issueで決定します。
 
-## Proposed Stack
+## v0.1 Language / Runtime Decision
 
-現時点の候補であり、確定ではありません。
+主開発言語は **Python + TypeScript** とします。
+
+- **Python 3.11+**: FastAPI local backend、Provider、Character、Memory、Recall、State、Guardian、Storage
+- **TypeScript (strict)**: React frontend、Chat UI、Character editor、Settings、Debug UI
+- **Rust**: Tauri shell、Python sidecar lifecycle、native OS integrationに限定
+- **SQL**: SQLite schema / migration
+
+詳細は [`docs/adr/0001-development-languages.md`](docs/adr/0001-development-languages.md) を参照してください。
 
 ### Desktop / UI
 
-- Tauri
+- Tauri 2
 - React
 - TypeScript
+- Vite
 - Tailwind CSS
 - shadcn/ui
 
-### Backend
+### Local Backend
 
-候補:
-
-- FastAPI / Python
-- またはTauri側に寄せたローカルサービス構成
+- Python 3.11+
+- FastAPI
+- Pydantic
+- async HTTP client
+- Local WebUIでは直接起動
+- DesktopではTauri sidecarとして同梱する方向
 
 ### Storage
 
 - SQLite
+- SQL migrations
 - 必要に応じてvector search layerを追加
 
 ### LLM
@@ -312,10 +350,49 @@ response_evaluations
 - Gemini API
 - xAI API
 
+### Runtime modes
+
+```text
+Local WebUI mode
+Browser
+   ↓
+React / TypeScript
+   ↓ HTTP / streaming
+FastAPI / Python
+
+Desktop mode
+Tauri WebView
+   ↓
+React / TypeScript
+   ↓ HTTP / streaming
+FastAPI / Python sidecar
+```
+
+Tauriの有無によってCharacter / Memory / Recall / Guardian等の挙動が変わらないことを原則とします。
+
+### Language boundary
+
+```text
+React / TypeScript
+       │
+       │ HTTP / streaming
+       ▼
+Python / FastAPI
+       │
+       ├── SQLite
+       └── Ollama / Cloud LLM APIs
+
+Rust / Tauri
+       └── window / packaging / sidecar / native integration
+```
+
+Character / Memory / Recall / Guardian / Provider等のdomain logicはPython側をsource of truthとし、RustやReact componentへ二重実装しません。
+
 ## v0.1 Scope
 
 最初の実用版では、機能を以下に絞る予定です。
 
+- Local WebUIとしての起動
 - キャラクター作成 / 編集
 - Ollama接続
 - モデル一覧・選択
@@ -330,6 +407,7 @@ response_evaluations
 - 基本的なGuardian / Repair loop
 - OpenAI / Gemini / xAI Provider追加
 - Provider credential設定
+- Tauri desktop wrapper
 
 ## Future: Evaluation and Fine-tuning
 
@@ -349,6 +427,8 @@ repaired / preferred response
 
 このデータを将来的に、キャラクターチャット向けのLoRA、preference tuning、DPO等に利用できる形へ整備します。
 
+Pythonをruntime coreにも採用することで、評価・データ加工・学習実験との知識共有をしやすくします。
+
 ## Non-goals for the first version
 
 v0.1では以下を優先しません。
@@ -358,6 +438,7 @@ v0.1では以下を優先しません。
 - SNS的なキャラクター共有機能
 - 高度なマルチユーザー機能
 - 完全な自律Agent化
+- デフォルトでのLAN / Internet公開
 
 まずは**長期間会話しても設定・人格・関係性が壊れにくいキャラクターチャット**を成立させることを優先します。
 

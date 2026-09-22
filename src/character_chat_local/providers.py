@@ -14,6 +14,16 @@ class ProviderError(RuntimeError):
     pass
 
 
+def _decode_event(raw: str) -> dict:
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ProviderError("invalid provider event") from exc
+    if not isinstance(data, dict) or "error" in data:
+        raise ProviderError("provider returned an error event")
+    return data
+
+
 class AIProvider(ABC):
     id: str
 
@@ -78,10 +88,15 @@ class OllamaProvider(AIProvider):
             async for line in response.aiter_lines():
                 if not line:
                     continue
-                data = json.loads(line)
+                data = _decode_event(line)
                 text = data.get("message", {}).get("content", "")
                 if text:
                     yield text
+                if data.get("done"):
+                    if data.get("done_reason") not in {None, "stop"}:
+                        raise ProviderError("provider did not finish normally")
+                    return
+        raise ProviderError("provider stream ended before completion")
 
 
 class OpenAICompatibleProvider(AIProvider):
@@ -145,12 +160,21 @@ class OpenAICompatibleProvider(AIProvider):
                 if not line.startswith("data:"):
                     continue
                 raw = line[5:].strip()
-                if not raw or raw == "[DONE]":
+                if not raw:
                     continue
-                data = json.loads(raw)
-                delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                if raw == "[DONE]":
+                    return
+                data = _decode_event(raw)
+                choices = data.get("choices") or []
+                if not choices:
+                    continue  # Usage-only event.
+                choice = choices[0]
+                if choice.get("finish_reason") not in {None, "stop"}:
+                    raise ProviderError("provider did not finish normally")
+                delta = choice.get("delta", {}).get("content", "")
                 if delta:
                     yield delta
+        raise ProviderError("provider stream ended before completion")
 
 
 class GeminiProvider(AIProvider):
@@ -214,6 +238,7 @@ class GeminiProvider(AIProvider):
             }
 
         url = f"{self.base_url}/v1beta/models/{model}:streamGenerateContent?alt=sse"
+        completed = False
         async with (
             httpx.AsyncClient(timeout=self.timeout) as client,
             client.stream("POST", url, headers=self.headers, json=payload) as response,
@@ -225,14 +250,24 @@ class GeminiProvider(AIProvider):
                 raw = line[5:].strip()
                 if not raw:
                     continue
-                data = json.loads(raw)
-                parts = (
-                    data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                )
-                for part in parts:
+                data = _decode_event(raw)
+                if data.get("promptFeedback", {}).get("blockReason"):
+                    raise ProviderError("provider blocked the request")
+                candidates = data.get("candidates") or []
+                if not candidates:
+                    continue
+                candidate = candidates[0]
+                finish_reason = candidate.get("finishReason")
+                if finish_reason:
+                    if finish_reason != "STOP":
+                        raise ProviderError("provider did not finish normally")
+                    completed = True
+                for part in candidate.get("content", {}).get("parts", []):
                     text = part.get("text", "")
-                    if text:
+                    if text and not part.get("thought", False):
                         yield text
+        if not completed:
+            raise ProviderError("provider stream ended before completion")
 
 
 class ProviderRegistry:

@@ -1,16 +1,15 @@
 # Change Routing
 
-Start from the current Issue, then read only the matching source and tests.
-
-| Change | Source | Tests |
+| 変更 | 主なsource | 最初のtests |
 |---|---|---|
-| provider / model API | `src/character_chat_local/providers.py` | provider smoke / targeted tests |
-| character schema | `models.py` | matching model/prompt tests |
-| prompt composition | `prompting.py` | prompt tests |
-| recall | `recall.py` | `tests/test_recall.py`, `tests/test_service.py` |
-| guardian | `guardian.py` | `tests/test_guardian.py` |
-| persistence | `storage.py` | `tests/test_storage.py` |
-| orchestration | `service.py` | `tests/test_service.py` |
-| HTTP surface | `api.py` | API tests when endpoints are added |
+| Character / prompt budget | `models.py`, `prompting.py` | `tests/test_runtime.py` |
+| Recall / Guardian | `recall.py`, `guardian.py` | `tests/test_recall.py`, `tests/test_guardian.py`, `tests/test_runtime.py` |
+| rolling summary | `summary.py`, `models.py` | `tests/test_summary.py`, `tests/test_long_turn.py` |
+| SQLite / migration / atomicity | `storage.py` | `tests/test_storage.py`, `tests/test_runtime.py`, `tests/test_long_turn.py` |
+| chat / repair / timeout | `service.py` | `tests/test_service.py`, `tests/test_runtime.py` |
+| Provider protocol | `providers.py` | `tests/test_provider_streams.py` |
+| API / localhost boundary | `api.py` | `tests/test_api.py`, `tests/test_long_turn.py` |
+| workflow / packaging | `pyproject.toml`, `.github/workflows/ci.yml` | 全pytest、Ruff、installed wheel smoke |
 
-Stop broad exploration once the current task's Goal, Required evidence, and Acceptance are satisfied. Run the matching test first; run the full unit suite for shared contracts.
+sourceのルートは `src/character_chat_local/`。共通model、永続化、API契約を変えたら全suiteへ広げる。
+UIは未実装。UI taskの原典はADR-0002とIssue #10。無関係なsourceや全Issuesを先読みしない。
