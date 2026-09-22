@@ -52,6 +52,8 @@ jobs:
       - name: Ruff lint
         run: python -m ruff check .
       - name: Ruff format check
+        if: success() || failure()
+        shell: bash
         run: python -m ruff format --check --diff . | tee ruff-format.patch
       - name: Pytest
         run: python -m pytest -q --junitxml=test-results.xml
