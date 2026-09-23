@@ -6,6 +6,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!frontend/.env.development
 data/
 *.db
 *.db-*
@@ -16,3 +17,11 @@ build/
 *.egg-info/
 test-results.xml
 ruff-format.patch
+
+# WebUI build and validation output
+node_modules/
+frontend/playwright-report/
+frontend/test-results/
+src/character_chat_local/webui/
+frontend/.env.local
+frontend/.env.*.local

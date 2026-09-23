@@ -9,7 +9,9 @@
 | chat / repair / timeout | `service.py` | `tests/test_service.py`, `tests/test_runtime.py` |
 | Provider protocol | `providers.py` | `tests/test_provider_streams.py` |
 | API / localhost boundary | `api.py` | `tests/test_api.py`, `tests/test_long_turn.py` |
+| UI / HTTP client / loading state | `frontend/src/` | TypeScript build、`frontend/e2e/chat.spec.ts` |
+| static UI / history windows | `webui.py`, `api.py`, `storage.py` | `tests/test_webui.py`、全pytest |
 | workflow / packaging | `pyproject.toml`, `.github/workflows/ci.yml` | 全pytest、Ruff、installed wheel smoke |
 
 sourceのルートは `src/character_chat_local/`。共通model、永続化、API契約を変えたら全suiteへ広げる。
-UIは未実装。UI taskの原典はADR-0002とIssue #10。無関係なsourceや全Issuesを先読みしない。
+UIの起動・検証は `webui.md`。UI taskの原典はADR-0002とIssue #10。無関係なsourceや全Issuesを先読みしない。

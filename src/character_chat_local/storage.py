@@ -238,15 +238,36 @@ class Storage:
         return [ChatMessage(role=r["role"], content=r["content"]) for r in rows]
 
     def list_message_records(
-        self, conversation_id: str, *, after: int = 0, limit: int = 100
+        self,
+        conversation_id: str,
+        *,
+        after: int = 0,
+        limit: int = 100,
+        before: int | None = None,
+        tail: bool = False,
     ) -> list[StoredMessage]:
+        if (
+            not 1 <= limit <= 500
+            or after < 0
+            or (before is not None and before < 1)
+            or (after and (before is not None or tail))
+            or (before is not None and tail)
+        ):
+            raise ValueError("use one cursor (after, before, or tail) and limit 1..500")
+        reverse = before is not None or tail
+        # Positions are global SQLite rowids, not conversation-local offsets.
+        # Fetch a bounded window in SQL, then return it in chronological order.
+        order = "DESC" if reverse else "ASC"
         with self.session() as db:
             self._conversation(db, conversation_id)
             rows = db.execute(
                 "SELECT rowid AS position, id, role, content, provider, model FROM messages "
-                "WHERE conversation_id=? AND rowid>? ORDER BY rowid LIMIT ?",
-                (conversation_id, after, limit),
+                "WHERE conversation_id=? AND rowid>? AND (? IS NULL OR rowid<?) "
+                f"ORDER BY rowid {order} LIMIT ?",
+                (conversation_id, after, before, before, limit),
             ).fetchall()
+        if reverse:
+            rows.reverse()
         return [StoredMessage.model_validate(dict(r)) for r in rows]
 
     def upsert_memory(self, memory: MemoryRecord) -> None:

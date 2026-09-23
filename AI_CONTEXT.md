@@ -6,7 +6,7 @@
 - 設計判断: `docs/adr/` の該当ADR。製品の狙い: `README.md`。
 - 実装済み / 未検証: `docs/current-state.md`。
 - 変更対象 / 検証: `docs/change-routing.md`、対象sourceとtests。
-- 起動・API・設定: `docs/development.md`。
+- 起動・API・設定: `docs/development.md`。WebUIのbuild/実行/検証: `docs/webui.md`。
 - 現在タスク / Acceptance: 対応するGitHub Issue。
 
 ## Working Rules
@@ -32,7 +32,8 @@
 - 共通契約変更: `python -m pytest -q`、`python -m ruff check .`、`python -m ruff format --check .`。
 - CIはPython 3.11 / 3.12、1,000往復の決定的HTTPテスト、wheelインストール後のsmoke。
 - 成功ログ全文ではなく、結果・対象commit・未検証領域を報告する。
-- モック成功を実モデル品質・GPU性能・UI合格として扱わない。
+- UI変更: `cd frontend && npm ci && npm run build && npm run test:e2e`。
+- ブラウザE2EはAPI/SQLiteの実処理と模擬Providerを使う。実モデル品質や本人の使用テストとは分ける。
 
 ## Ignore Normally
 `.venv/`, caches, `data/`, DB/WAL files, `dist/`, generated reports, unrelated history。
