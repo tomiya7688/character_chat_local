@@ -52,9 +52,41 @@ jobs:
       - name: Ruff lint
         run: python -m ruff check .
       - name: Ruff format check
-        run: python -m ruff format --check .
+        if: success() || failure()
+        shell: bash
+        run: python -m ruff format --check --diff . | tee ruff-format.patch
       - name: Pytest
-        run: python -m pytest -q
+        run: python -m pytest -q --junitxml=test-results.xml
+      - name: Installed wheel smoke
+        run: |
+          python -m pip wheel . --no-deps --wheel-dir "$RUNNER_TEMP/chat-wheels"
+          python -m pip install --force-reinstall --no-deps "$RUNNER_TEMP"/chat-wheels/*.whl
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import tempfile
+          from pathlib import Path
+          import character_chat_local
+          from fastapi.testclient import TestClient
+          from character_chat_local.api import create_app
+          from character_chat_local.providers import ProviderRegistry
+          assert 'site-packages' in character_chat_local.__file__
+          with tempfile.TemporaryDirectory() as tmp:
+              app = create_app(database_path=Path(tmp) / 'smoke.db', registry=ProviderRegistry([]))
+              with TestClient(app, base_url='http://127.0.0.1') as client:
+                  assert client.get('/health').json() == {'ok': True}
+                  assert client.post('/characters', json={'name': 'Smoke'}).status_code == 201
+                  assert len(client.get('/characters').json()) == 1
+          PY
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-validation-${{ matrix.python-version }}
+          path: |
+            test-results.xml
+            ruff-format.patch
+          if-no-files-found: ignore
+          retention-days: 7
 
   frontend:
     name: Frontend / TypeScript
@@ -111,6 +143,57 @@ jobs:
             exit 1
           fi
           if [[ -f package-lock.json ]]; then npm run build; elif [[ -f pnpm-lock.yaml ]]; then pnpm run build; else yarn build; fi
+
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install API for browser integration tests
+        working-directory: .
+        run: python -m pip install -e '.[dev]'
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser integration tests
+        run: npm run test:e2e
+      - name: Installed WebUI wheel smoke
+        working-directory: .
+        run: |
+          python -m pip wheel . --no-deps --wheel-dir dist
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          cd "$RUNNER_TEMP"
+          python - <<'PYCODE'
+          import re
+          import tempfile
+          from pathlib import Path
+          import character_chat_local
+          from fastapi.testclient import TestClient
+          from character_chat_local.api import create_app
+          from character_chat_local.providers import ProviderRegistry
+          assert 'site-packages' in character_chat_local.__file__
+          with tempfile.TemporaryDirectory() as tmp:
+              app = create_app(database_path=Path(tmp) / 'ui.db', registry=ProviderRegistry([]), api_token='smoke')
+              with TestClient(app, base_url='http://127.0.0.1') as client:
+                  page = client.get('/ui/')
+                  assert page.status_code == 200
+                  scripts = re.findall(r'src="([^" ]+\.js)"', page.text)
+                  assert scripts, 'built script is missing'
+                  for script in scripts:
+                      asset = client.get(script)
+                      assert asset.status_code == 200 and len(asset.content) > 1000
+                  assert client.get('/characters').status_code == 401
+          PYCODE
+      - name: Upload WebUI validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-validation
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            src/character_chat_local/webui/
+            dist/*.whl
+          if-no-files-found: ignore
+          retention-days: 7
 
   tauri:
     name: Tauri / Rust
