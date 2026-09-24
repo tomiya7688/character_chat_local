@@ -561,9 +561,7 @@ def create_app(
             raise HTTPException(404, "message not found") from None
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        return stream_chat_response(
-            branch.id, payload, discard_pending_on_failure=True
-        )
+        return stream_chat_response(branch.id, payload, discard_pending_on_failure=True)
 
     @app.post(
         "/conversations/{conversation_id}/generations/{generation_id}/stop",
