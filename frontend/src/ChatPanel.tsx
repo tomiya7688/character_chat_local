@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import Markdown from 'react-markdown';
 import { ApiClient, ApiError, errorMessage } from './api';
-import type { ChatResult, GenerationPhase, Message, Summary } from './types';
+import type { ChatResult, ChatStreamEvent, GenerationPhase, Message, Summary } from './types';
 
 type WindowRequest = { tail?: boolean; before?: number; after?: number };
 
-export function ChatPanel({ api, conversationId, name, provider, model, temperature, onBusy }: {
+export function ChatPanel({ api, conversationId, name, provider, model, temperature, onBusy, onBranchCreated }: {
   api: ApiClient; conversationId: string; name: string; provider: string; model: string;
-  temperature: number; onBusy: (busy: boolean) => void;
+  temperature: number; onBusy: (busy: boolean) => void; onBranchCreated: (conversationId: string) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
@@ -16,7 +16,9 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState('');
   const [generationId, setGenerationId] = useState<string | null>(null);
+  const [generationConversationId, setGenerationConversationId] = useState<string | null>(null);
   const [phase, setPhase] = useState<GenerationPhase | 'stopping'>('generating');
+  const [editTarget, setEditTarget] = useState<Message | null>(null);
   const [error, setError] = useState('');
   const [uncertain, setUncertain] = useState(false);
   const [latest, setLatest] = useState(true);
@@ -86,38 +88,35 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
     else if (latest) endRef.current?.scrollIntoView({ block: 'nearest' });
   }, [messages, latest, loading, focusMessage]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const input = draft.trim();
-    if (sendLock.current || loading || uncertain || !input || !model.trim() || !provider) return;
+  async function consumeStream(stream: AsyncGenerator<ChatStreamEvent>) {
     sendLock.current = true;
     setSending(true); onBusy(true); setError(''); setResult(null);
-    setPreview(''); setGenerationId(null); setPhase('generating');
+    setPreview(''); setGenerationId(null); setGenerationConversationId(null); setPhase('generating');
     let committed = false;
     let stopped = false;
     try {
       let accepted: ChatResult | null = null;
-      for await (const streamEvent of api.chatStream(
-        conversationId, provider, model.trim(), input, temperature,
-      )) {
-        if (streamEvent.type === 'started') setGenerationId(streamEvent.generation_id);
-        else if (streamEvent.type === 'draft_delta') setPreview(current => current + streamEvent.text);
+      for await (const streamEvent of stream) {
+        if (streamEvent.type === 'started') {
+          setGenerationId(streamEvent.generation_id);
+          setGenerationConversationId(streamEvent.conversation_id);
+        } else if (streamEvent.type === 'draft_delta') setPreview(current => current + streamEvent.text);
         else if (streamEvent.type === 'phase') setPhase(streamEvent.phase);
         else if (streamEvent.type === 'final') accepted = streamEvent.result;
         else if (streamEvent.type === 'stopped') {
           stopped = true;
           setPreview('');
-          setError('生成を停止しました。入力と途中の応答は会話履歴へ保存されていません。');
+          setError('生成を停止しました。元の会話は変更されていません。');
         } else if (streamEvent.type === 'error') {
           const status = streamEvent.code === 'quality_rejected' || streamEvent.code === 'invalid_request'
             ? 422 : streamEvent.code === 'conversation_conflict' ? 409
               : streamEvent.code === 'provider_error' ? 502 : 500;
           const message = streamEvent.code === 'quality_rejected'
-            ? '品質チェックを通過する応答が得られませんでした。入力は未保存です。内容やモデルを変えて再送できます。'
+            ? '品質チェックを通過する応答が得られませんでした。元の会話は変更されていません。'
             : streamEvent.code === 'provider_error'
-              ? 'モデルへの接続に失敗しました。Ollamaの起動・モデル・Provider設定を確認してください。'
+              ? 'モデルへの接続に失敗しました。元の会話は変更されていません。'
               : streamEvent.code === 'conversation_conflict'
-                ? '会話が別の更新と競合しました。履歴を再読込してから再送してください。'
+                ? '会話が別の更新と競合しました。履歴を再読込してからやり直してください。'
                 : streamEvent.code === 'invalid_request'
                   ? '入力または設定が上限を超えています。文字数やキャラクター設定を確認してください。'
                   : '生成に失敗しました。履歴を再読込して保存状況を確認してください。';
@@ -125,30 +124,66 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
         }
       }
       if (stopped) return;
-      if (!accepted || accepted.conversation_id !== conversationId
-        || !accepted.guardian.passed || !accepted.text.trim()) {
+      if (!accepted || !accepted.guardian.passed || !accepted.text.trim()) {
         throw new ApiError('応答の検証結果を確認できませんでした。履歴を再読込してください。', 0);
       }
       committed = true;
-      setDraft(''); setPreview(''); setResult(accepted); setFocusMessage(null);
-      await load();
-      if (summaryOpen) await loadSummary();
+      setDraft(''); setEditTarget(null); setPreview(''); setResult(accepted); setFocusMessage(null);
+      if (accepted.conversation_id !== conversationId) {
+        onBranchCreated(accepted.conversation_id);
+      } else {
+        await load();
+        if (summaryOpen) await loadSummary();
+      }
     } catch (e) {
       setPreview('');
       setError(committed
-        ? '応答は保存されましたが、履歴を取得できませんでした。再送せず「履歴を再読込」を押してください。'
+        ? '応答は保存されましたが、履歴を取得できませんでした。再送せず一覧を更新してください。'
         : errorMessage(e));
       if (!committed && e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 409)) setUncertain(true);
     } finally {
-      sendLock.current = false; setSending(false); setGenerationId(null); onBusy(false); inputRef.current?.focus();
+      sendLock.current = false; setSending(false); setGenerationId(null); setGenerationConversationId(null);
+      onBusy(false); inputRef.current?.focus();
     }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const input = draft.trim();
+    if (sendLock.current || loading || uncertain || !input || !model.trim() || !provider) return;
+    const stream = editTarget
+      ? api.editRetryStream(conversationId, editTarget.id, provider, model.trim(), input, temperature)
+      : api.chatStream(conversationId, provider, model.trim(), input, temperature);
+    await consumeStream(stream);
+  }
+
+  async function regenerate(message: Message) {
+    if (sendLock.current || loading || uncertain || draft.trim() || editTarget || !model.trim() || !provider) return;
+    await consumeStream(
+      api.regenerateStream(conversationId, message.id, provider, model.trim(), temperature),
+    );
+  }
+
+  function beginEdit(message: Message) {
+    if (sending || loading || uncertain || draft.trim()) return;
+    setEditTarget(message);
+    setDraft(message.content);
+    setError('');
+    queueMicrotask(() => inputRef.current?.focus());
+  }
+
+  function cancelEdit() {
+    setEditTarget(null);
+    setDraft('');
+    setError('');
+    inputRef.current?.focus();
   }
 
   async function stopGeneration() {
     if (!sending || !generationId || phase === 'stopping') return;
     setPhase('stopping');
     try {
-      await api.stopGeneration(conversationId, generationId);
+      await api.stopGeneration(generationConversationId ?? conversationId, generationId);
     } catch (e) {
       setError(errorMessage(e));
       setPhase('generating');
@@ -188,6 +223,10 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
                   a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
                 }}>{message.content}</Markdown></div>
               : <p className="plain-message">{message.content}</p>}
+            <div className="message-actions">
+              {message.role === 'assistant' && <button type="button" disabled={sending || loading || uncertain || Boolean(draft.trim()) || Boolean(editTarget)} onClick={() => void regenerate(message)}>再生成</button>}
+              {message.role === 'user' && <button type="button" disabled={sending || loading || uncertain || Boolean(draft.trim())} onClick={() => beginEdit(message)}>編集して再送</button>}
+            </div>
           </article>)}
           {sending && preview && <article data-testid="draft-preview" className="message assistant draft-preview">
             <header><strong>{name}</strong><small>未確定の下書き · Finalで置換されます</small></header>
@@ -217,6 +256,7 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
       {error && <p role="alert" className="error">{error}</p>}
       {sending && <p className="generation-status" role="status">{phaseText}。表示中の下書きは未確定で、保存されません。</p>}
       {result && !sending && <p className="success" role="status">品質チェック済み{result.repaired ? ' · 応答を修正しました' : ''}{result.regenerated_for_recall ? ' · 記憶を追加して再生成しました' : ''}</p>}
+      {editTarget && !sending && <div className="edit-retry-banner" role="status"><span>この発言から新しい会話へ分岐します。元の履歴は残ります。</span><button type="button" onClick={cancelEdit}>編集をやめる</button></div>}
       <form ref={formRef} onSubmit={submit} className="composer">
         <label className="sr-only" htmlFor="chat-input">メッセージ</label>
         <textarea ref={inputRef} id="chat-input" rows={3} maxLength={4000} value={draft} disabled={sending} placeholder={`${name}へのメッセージ…`} onChange={e => setDraft(e.target.value)}
@@ -227,9 +267,9 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
           }} />
         {sending
           ? <button type="button" className="danger" disabled={!generationId || phase === 'stopping'} onClick={() => void stopGeneration()}>{phase === 'stopping' ? '停止中…' : '停止'}</button>
-          : <button className="primary" disabled={loading || uncertain || !draft.trim() || !model.trim() || !provider}>送信</button>}
+          : <button className="primary" disabled={loading || uncertain || !draft.trim() || !model.trim() || !provider}>{editTarget ? '編集して分岐' : '送信'}</button>}
       </form>
-      <div className="composer-hint"><span>Ctrl / ⌘ + Enterで送信 · 下書きはこのタブ内のみ</span><span>{draft.length} / 4,000</span></div>
+      <div className="composer-hint"><span>{editTarget ? '編集内容は新しいbranchにだけ保存されます' : 'Ctrl / ⌘ + Enterで送信 · 下書きはこのタブ内のみ'}</span><span>{draft.length} / 4,000</span></div>
     </div>
   </section>;
 }
