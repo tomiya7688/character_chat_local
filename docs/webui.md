@@ -75,11 +75,11 @@ npm run test:e2e
 
 ブラウザテストは `tools/webui_e2e_server.py` を自動起動する。localhost:8766を空けておく。
 使うのは一時DBと決定的Providerで、実Ollama/外部APIやユーザーの保存済みDBには接続しない。
-期待出力、品質拒否/修正、model切替、reload、IME、重複submit、2,000メッセージのwindow、認証、Markdown、mobile、要約出典を確認する。
+期待出力、draft streaming、Stop非保存、品質拒否/修正、model切替、reload、IME、重複submit、2,000メッセージのwindow、認証、Markdown、mobile、要約出典を確認する。
 CIのfrontend jobでも同じ操作を実行し、JUnit / HTML report / screenshotと、WebUI同梱wheelをartifactに保存する。
 成功ログ全文ではなく結果を確認し、失敗時だけ対象trace/差分を見る。
 
 ## Still outside this increment
 
-SSE/streaming、Stop、Regenerate/Edit/retry、外部character-card形式、一覧500件を超える検索、OS keychain、Tauri配布。
+Regenerate/Edit/retry、外部character-card形式、一覧500件を超える検索、OS keychain、Tauri配布。streamingはPOST + NDJSONで実装し、SSEは採用していない。
 未送信入力の会話間保持・リロード後復元も未実装。Providerは模擬実装で検証するため、実モデル品質・GPU性能・本人の使用テストは別の受入条件。
