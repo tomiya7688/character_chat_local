@@ -53,10 +53,10 @@ npm run dev
 認証前に配信するのは静的な `/ui/` シェルとassetsのみで、会話APIは引き続き認証される。
 Host / Origin / Fetch Metadata確認、CSP、静的ファイルのディレクトリ境界を維持する。
 
-会話履歴はDBを原本とし、品質を通過した応答だけを表示する。失敗した入力を確定履歴として表示しない。
+会話履歴はDBを原本とし、初回draftは未確定previewとして表示する。失敗した入力を確定履歴として表示しない。
 品質不合格では入力を保持する。通信結果が不明な場合は勝手に再送しない。履歴再読込で保存状況を確認してから操作する。
-同一タブで送信中はモデル/会話/設定変更を抑止する。タブを閉じても推論を確実に停止できるとは限らない。
-Stop APIは未実装なので、単なるHTTP abortを「停止」と呼ぶボタンは設けない。
+Stopはbackendのgeneration taskをcancelし、停止turnを保存しない。
+assistantの「再生成」とuserの「編集して再送」は元会話を上書きせず、新しい会話branchを作る。編集中は元履歴が残ることを画面に表示し、未送信下書きがある場合はbranch操作を無効にする。
 
 Markdownはraw HTMLを許可せず、標準のURL sanitizationを使用する。外部画像はテキストに置き換え、自動取得しない。
 会話の抜粋要約は意味を完全には保持しない。「出典を見る」で元メッセージへ移動できる。
@@ -75,11 +75,11 @@ npm run test:e2e
 
 ブラウザテストは `tools/webui_e2e_server.py` を自動起動する。localhost:8766を空けておく。
 使うのは一時DBと決定的Providerで、実Ollama/外部APIやユーザーの保存済みDBには接続しない。
-期待出力、draft streaming、Stop非保存、品質拒否/修正、model切替、reload、IME、重複submit、2,000メッセージのwindow、認証、Markdown、mobile、要約出典を確認する。
+期待出力、draft streaming、Stop非保存、Regenerate、Edit & Retry、branch失敗時の元履歴保持、品質拒否/修正、model切替、reload、IME、重複submit、2,000メッセージのwindow、認証、Markdown、mobile、要約出典を確認する。
 CIのfrontend jobでも同じ操作を実行し、JUnit / HTML report / screenshotと、WebUI同梱wheelをartifactに保存する。
 成功ログ全文ではなく結果を確認し、失敗時だけ対象trace/差分を見る。
 
 ## Still outside this increment
 
-Regenerate/Edit/retry、外部character-card形式、一覧500件を超える検索、OS keychain、Tauri配布。streamingはPOST + NDJSONで実装し、SSEは採用していない。
+外部character-card形式、一覧500件を超える検索、OS keychain、Tauri配布。streamingはPOST + NDJSONで実装し、SSEは採用していない。
 未送信入力の会話間保持・リロード後復元も未実装。Providerは模擬実装で検証するため、実モデル品質・GPU性能・本人の使用テストは別の受入条件。
