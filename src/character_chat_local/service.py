@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from contextlib import aclosing
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -128,6 +127,7 @@ class ChatService:
                 repair=repair,
                 max_prompt_bytes=self.max_prompt_bytes,
             )
+
             async def draft_chunk(part: str) -> None:
                 await emit("draft_delta", text=part)
 
