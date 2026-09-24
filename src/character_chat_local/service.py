@@ -26,6 +26,10 @@ class ProgressCallback(Protocol):
     async def __call__(self, event: dict[str, Any]) -> None: ...
 
 
+class ChunkCallback(Protocol):
+    async def __call__(self, part: str) -> None: ...
+
+
 class QualityRejected(RuntimeError):
     def __init__(self, evaluation_id: str, guardian: GuardianResult):
         super().__init__("response did not pass quality checks")
@@ -38,7 +42,7 @@ async def _collect(
     model: str,
     messages: list[ChatMessage],
     temperature: float,
-    on_chunk: ProgressCallback | None = None,
+    on_chunk: ChunkCallback | None = None,
 ) -> str:
     parts: list[str] = []
     length = 0
