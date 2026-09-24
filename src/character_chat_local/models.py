@@ -21,6 +21,7 @@ MemoryType = Literal[
     "current_state",
 ]
 RecallMode = Literal["explicit", "implicit", "behavioral", "emotional", "internal_only"]
+GenerationStatus = Literal["generating", "completed", "stopped", "failed", "superseded"]
 
 
 class ChatMessage(BaseModel):
@@ -123,6 +124,17 @@ class ConversationInfo(BaseModel):
     id: str
     character_id: str
     revision: int = 0
+
+
+class GenerationRun(BaseModel):
+    id: str
+    conversation_id: str
+    status: GenerationStatus
+    provider: str
+    model: str
+    error_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class SummaryEntry(BaseModel):
