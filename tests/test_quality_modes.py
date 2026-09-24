@@ -1,7 +1,8 @@
+from conftest import ScriptedProvider
+
 from character_chat_local.models import CharacterCore, MemoryRecord
 from character_chat_local.service import ChatService
 from character_chat_local.storage import Storage
-from conftest import ScriptedProvider
 
 
 def step(trace, name):
