@@ -94,7 +94,10 @@ class LightweightDraftChecker:
                 if len(left) < 8:
                     continue
                 for right in sentences[index + 1 :]:
-                    if len(right) >= 8 and SequenceMatcher(None, left, right).ratio() >= 0.9:
+                    if (
+                        len(right) >= 8
+                        and SequenceMatcher(None, left, right).ratio() >= 0.9
+                    ):
                         near_duplicate = True
                         break
                 if near_duplicate:
