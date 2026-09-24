@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
+import json
 import os
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .models import CharacterCore, MemoryRecord
@@ -17,6 +20,12 @@ from .providers import ProviderError, ProviderRegistry
 from .service import ChatService, QualityRejected
 from .storage import ConversationConflict, Storage
 from .webui import mount_webui, public_ui_request
+
+
+@dataclass
+class ActiveGeneration:
+    generation_id: str
+    task: asyncio.Task | None = None
 
 
 class ConversationCreate(BaseModel):
@@ -50,13 +59,22 @@ def create_app(
             registry if registry is not None else ProviderRegistry.from_env()
         )
         app.state.service = ChatService(app.state.storage)
-        app.state.active = set()
+        app.state.active: dict[str, ActiveGeneration] = {}
         app.state.api_token = (
             api_token
             if api_token is not None
             else os.getenv("CHARACTER_CHAT_API_TOKEN")
         )
         yield
+        tasks = [
+            session.task
+            for session in app.state.active.values()
+            if session.task is not None and not session.task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         app.state.active.clear()
 
     app = FastAPI(title="character_chat_local", lifespan=lifespan)
@@ -260,37 +278,7 @@ def create_app(
             for m in models
         ]
 
-    @app.post("/conversations/{conversation_id}/chat")
-    async def chat(conversation_id: str, payload: ChatRequest):
-        conversation = conversation_or_404(conversation_id)
-        character = character_or_404(conversation.character_id)
-        provider = provider_or_404(payload.provider)
-        if conversation_id in app.state.active:
-            raise HTTPException(409, "conversation is already generating")
-        app.state.active.add(conversation_id)
-        try:
-            result = await app.state.service.run(
-                provider=provider,
-                model=payload.model,
-                character=character,
-                user_input=payload.user_input,
-                conversation_id=conversation_id,
-                temperature=payload.temperature,
-            )
-        except QualityRejected as exc:
-            raise HTTPException(
-                422,
-                {
-                    "code": "quality_rejected",
-                    "message": "No response passed quality checks.",
-                    "evaluation_id": exc.evaluation_id,
-                },
-            ) from None
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from None
-        finally:
-            app.state.active.discard(conversation_id)
-        # Deliberately buffered: never stream an unvalidated draft to a client.
+    def public_chat_result(conversation_id: str, payload: ChatRequest, result):
         return {
             "conversation_id": conversation_id,
             "provider": payload.provider,
@@ -300,6 +288,216 @@ def create_app(
             "repaired": result.repaired,
             "regenerated_for_recall": result.regenerated_for_recall,
         }
+
+    def finish_generation(generation_id: str, status: str, error_code: str | None = None):
+        try:
+            return storage().finish_generation(
+                generation_id, status, error_code=error_code
+            )
+        except ConversationConflict:
+            return storage().get_generation(generation_id)
+
+    @app.post("/conversations/{conversation_id}/chat")
+    async def chat(conversation_id: str, payload: ChatRequest):
+        conversation = conversation_or_404(conversation_id)
+        character = character_or_404(conversation.character_id)
+        provider = provider_or_404(payload.provider)
+        if conversation_id in app.state.active:
+            raise HTTPException(409, "conversation is already generating")
+        generation = storage().start_generation(
+            conversation_id, payload.provider, payload.model
+        )
+        session = ActiveGeneration(generation.id, asyncio.current_task())
+        app.state.active[conversation_id] = session
+        try:
+            result = await app.state.service.run(
+                provider=provider,
+                model=payload.model,
+                character=character,
+                user_input=payload.user_input,
+                conversation_id=conversation_id,
+                temperature=payload.temperature,
+                generation_id=generation.id,
+            )
+        except asyncio.CancelledError:
+            finish_generation(generation.id, "stopped", "cancelled")
+            raise
+        except QualityRejected as exc:
+            finish_generation(generation.id, "failed", "quality_rejected")
+            raise HTTPException(
+                422,
+                {
+                    "code": "quality_rejected",
+                    "message": "No response passed quality checks.",
+                    "evaluation_id": exc.evaluation_id,
+                },
+            ) from None
+        except ValueError as exc:
+            finish_generation(generation.id, "failed", "invalid_request")
+            raise HTTPException(422, str(exc)) from None
+        except ProviderError:
+            finish_generation(generation.id, "failed", "provider_error")
+            raise
+        except ConversationConflict:
+            finish_generation(generation.id, "failed", "conversation_conflict")
+            raise
+        else:
+            finish_generation(generation.id, "completed")
+            return public_chat_result(conversation_id, payload, result)
+        finally:
+            current = app.state.active.get(conversation_id)
+            if current is session:
+                app.state.active.pop(conversation_id, None)
+
+    @app.post("/conversations/{conversation_id}/chat/stream")
+    async def chat_stream(conversation_id: str, payload: ChatRequest):
+        conversation = conversation_or_404(conversation_id)
+        character = character_or_404(conversation.character_id)
+        provider = provider_or_404(payload.provider)
+        if conversation_id in app.state.active:
+            raise HTTPException(409, "conversation is already generating")
+        generation = storage().start_generation(
+            conversation_id, payload.provider, payload.model
+        )
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+        session = ActiveGeneration(generation.id)
+        app.state.active[conversation_id] = session
+        queue.put_nowait({"type": "started", "generation_id": generation.id})
+
+        async def emit(event: dict) -> None:
+            await queue.put({"generation_id": generation.id, **event})
+
+        async def worker() -> None:
+            try:
+                result = await app.state.service.run(
+                    provider=provider,
+                    model=payload.model,
+                    character=character,
+                    user_input=payload.user_input,
+                    conversation_id=conversation_id,
+                    temperature=payload.temperature,
+                    on_event=emit,
+                    generation_id=generation.id,
+                )
+            except asyncio.CancelledError:
+                finish_generation(generation.id, "stopped", "cancelled")
+                queue.put_nowait(
+                    {
+                        "type": "stopped",
+                        "generation_id": generation.id,
+                        "status": "stopped",
+                    }
+                )
+            except QualityRejected as exc:
+                finish_generation(generation.id, "failed", "quality_rejected")
+                queue.put_nowait(
+                    {
+                        "type": "error",
+                        "generation_id": generation.id,
+                        "code": "quality_rejected",
+                        "message": "No response passed quality checks.",
+                        "evaluation_id": exc.evaluation_id,
+                    }
+                )
+            except ValueError:
+                finish_generation(generation.id, "failed", "invalid_request")
+                queue.put_nowait(
+                    {
+                        "type": "error",
+                        "generation_id": generation.id,
+                        "code": "invalid_request",
+                        "message": "Input or prompt settings are invalid.",
+                    }
+                )
+            except ProviderError:
+                finish_generation(generation.id, "failed", "provider_error")
+                queue.put_nowait(
+                    {
+                        "type": "error",
+                        "generation_id": generation.id,
+                        "code": "provider_error",
+                        "message": "Provider request failed.",
+                    }
+                )
+            except ConversationConflict:
+                finish_generation(generation.id, "failed", "conversation_conflict")
+                queue.put_nowait(
+                    {
+                        "type": "error",
+                        "generation_id": generation.id,
+                        "code": "conversation_conflict",
+                        "message": "Conversation changed during generation.",
+                    }
+                )
+            except Exception:
+                finish_generation(generation.id, "failed", "internal_error")
+                queue.put_nowait(
+                    {
+                        "type": "error",
+                        "generation_id": generation.id,
+                        "code": "internal_error",
+                        "message": "Generation failed.",
+                    }
+                )
+            else:
+                finish_generation(generation.id, "completed")
+                queue.put_nowait(
+                    {
+                        "type": "final",
+                        "generation_id": generation.id,
+                        "result": public_chat_result(conversation_id, payload, result),
+                    }
+                )
+            finally:
+                current = app.state.active.get(conversation_id)
+                if current is session:
+                    app.state.active.pop(conversation_id, None)
+                queue.put_nowait(None)
+
+        session.task = asyncio.create_task(
+            worker(), name=f"chat-generation-{generation.id}"
+        )
+
+        async def event_body():
+            try:
+                while True:
+                    event = await queue.get()
+                    if event is None:
+                        break
+                    yield json.dumps(event, ensure_ascii=False) + "\n"
+            finally:
+                if session.task is not None and not session.task.done():
+                    session.task.cancel()
+                    await asyncio.gather(session.task, return_exceptions=True)
+
+        return StreamingResponse(
+            event_body(),
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post(
+        "/conversations/{conversation_id}/generations/{generation_id}/stop",
+        status_code=202,
+    )
+    async def stop_generation(conversation_id: str, generation_id: str):
+        conversation_or_404(conversation_id)
+        try:
+            generation = storage().get_generation(generation_id)
+        except KeyError:
+            raise HTTPException(404, "generation not found") from None
+        if generation.conversation_id != conversation_id:
+            raise HTTPException(404, "generation not found")
+        session = app.state.active.get(conversation_id)
+        if (
+            session is not None
+            and session.generation_id == generation_id
+            and session.task is not None
+            and not session.task.done()
+        ):
+            session.task.cancel()
+            return {"generation_id": generation_id, "status": "stopping"}
+        return {"generation_id": generation_id, "status": generation.status}
 
     mount_webui(app, ui_directory)
     return app
