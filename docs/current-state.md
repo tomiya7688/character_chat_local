@@ -1,11 +1,14 @@
 # Current State
 
-対象: `feat/streaming-stop`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
+対象: `feat/regenerate-edit-retry`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
 
 ## Implemented
 - React / Vite / TypeScript strictのWebUI。キャラクター定義JSONの読込/編集、モデル選択/直接指定、会話開始/再開、品質合格後の表示、Markdown/code、出典付き要約の確認。
 - 長期履歴は最新100メッセージから前後に移動する。DB側でwindowを制限し、他会話が挟まるglobal rowidにも対応。
-- 初回draftを未確定previewとして逐次表示し、検証/Secondary Recall/Repairの状態を表示する。Final確定時に履歴へ置換する。Stopはprovider taskをcancelし、停止turnを確定履歴へ保存しない。\n- 品質不合格時は入力を保持。通信結果が不明な場合は自動再送せず、履歴再取得を要求する。IME変換中の誤送信と重複submitを抑止。
+- 初回draftを未確定previewとして逐次表示し、検証/Secondary Recall/Repairの状態を表示する。Final確定時に履歴へ置換する。Stopはprovider taskをcancelし、停止turnを確定履歴へ保存しない。
+- Regenerate / Edit & Retry は元会話を変更せず、新しいconversation branchを作る。prefixだけを複製し、Final成功時にbranchを公開する。失敗/Stop時はpending branchを破棄する。
+- branchのコピー済みmessageは `origin_message_id`、新しいassistantは `generation_id` を保持する。置換対象generationは成功時だけ `superseded` へ遷移する。
+- 品質不合格時は入力を保持。通信結果が不明な場合は自動再送せず、履歴再取得を要求する。IME変換中の誤送信と重複submitを抑止。
 - APIトークンはタブのメモリのみ。静的シェルは認証前に読めるが、APIは保護し、Host/Origin確認を維持する。
 - build済みWebUIをFastAPI `/ui/` とwheelから配信。外部画像の自動読込・raw HTMLは無効。
 - Playwrightの実ブラウザテストをCIへ追加（実API/SQLite + 模擬Provider）。desktop/mobileのスクリーンショットをartifactへ出力。
@@ -23,18 +26,20 @@
 - Pythonの回帰テスト。うち1本はHTTP経由1,000往復、途中再起動、Provider/model切替、出典・DB整合性・プロンプト上限の決定的テスト。
 
 ## Explicitly Not Implemented / Unverified
-- Tauri配布、かどか本人による使用テスト。UIの追加要件では Edit/retry / Regenerate が未完了。
+- Tauri配布、かどか本人による使用テスト。
 - 実Ollama / cloud APIへの接続確認と、実モデルで1,000往復した品質・安定性。
 - 小型モデルの性能評価、LLMによる意味的な要約・Memory/State自動抽出、vector検索。
 - 厳密なモデル別tokenizer、context window検出、出力予約込みのモデル別budget調整。
 - 一般的な設定矛盾・関係性変化・幻覚の完全な検出。forbiddenは現状、文字列一致として扱う。
-- SSEは未採用（現状はPOST + NDJSON stream）。Edit/retry、Regenerate、分岐会話、OS credential store、学習データexportは未実装。
+- SSEは未採用（現状はPOST + NDJSON stream）。OS credential store、学習データexportは未実装。
 
 ## Boundaries
 抽出型要約は全文の意味を完全に保持しない。新しい重要発言により古い抜粋が外れることがある。
 `covered_messages` は処理済み件数であり、その全内容を要約内に保持しているという意味ではない。
 全文はSQLiteへ残るが、要約から外れた任意の過去発言を自動検索する仕組みは未実装。
 従来の `POST /chat` は検証完了までbufferする。WebUIは `POST /chat/stream` の初回draftを未確定previewとして表示するが、Finalだけを保存済み会話として扱う。
+Regenerate / Edit & Retry は会話履歴を破壊的に巻き戻さずbranchを作る。branch作成時はprefixを複製するため、branch数に応じてSQLite上の履歴容量は増える。
+この機能追加前の既存assistant messageには `generation_id` がないため、branch自体は作れるが過去generationを遡って `superseded` に結び付けることはできない。
 会話本文・評価ログはローカルDBに保存する。設定用APIキーを会話本文へ入力しないこと。
 既定は単一ユーザー・loopback運用。公開サーバー用の認証/権限設計は含まない。
 
