@@ -284,7 +284,7 @@ def create_app(
             "provider": payload.provider,
             "model": payload.model,
             "text": result.text,
-            "guardian": result.guardian,
+            "guardian": result.guardian.model_dump(),
             "repaired": result.repaired,
             "regenerated_for_recall": result.regenerated_for_recall,
         }
