@@ -25,7 +25,7 @@ Ollama daemonと会話用modelは別途必要。`GET /providers/ollama/models` �
 ```
 
 Provider/modelは毎回選べる。履歴とキャラクターの対応はサーバーが復元し、クライアントからのhistoryは受け付けない。
-buffered `/chat` は成功時に最終text、provider/model、Guardian結果、修正有無だけを返す。`/chat/stream` はNDJSONで `started` / `draft_delta` / `phase` / `final` / `stopped` / `error` を返し、初回draftだけを未確定previewとして扱う。
+buffered `/chat` は成功時に最終text、provider/model、Guardian結果、修正有無だけを返す。`/chat/stream` はNDJSONで `started` / `draft_delta` / `phase` / `final` / `stopped` / `error` を返し、初回draftだけを未確定previewとして扱う。branch系streamでは `started.conversation_id` が新branch IDになり、StopにもそのIDを使う。
 
 | Endpoint | 用途 |
 |---|---|
@@ -34,11 +34,15 @@ buffered `/chat` は成功時に最終text、provider/model、Guardian結果、�
 | `GET /conversations/{id}/messages?after=0&limit=100` | 昇順の履歴。次ページは最後のpositionをafterへ渡す。`tail=true`は最新、`before=<position>`は直前のページ（どちらも返却順は昇順）。cursorの併用は禁止。limitは最大500 |
 | `GET /conversations/{id}/summary` | 出典付き抽出要約と処理済み件数 |
 | `GET /characters/{id}/memories`, `POST /characters/{id}/memories` | 構造化Memory。source指定時は同一characterのmessage IDが必要 |
-| `GET /providers`, `GET /providers/{id}/models` | 設定済みProvider / model一覧。credentialは返さない |\n| `POST /conversations/{id}/chat/stream` | NDJSONで初回draft previewと検証状態を配信し、最後に確定Finalを返す |\n| `POST /conversations/{id}/generations/{generation_id}/stop` | 実行中provider taskを停止。停止turnは確定履歴へcommitしない |
+| `GET /providers`, `GET /providers/{id}/models` | 設定済みProvider / model一覧。credentialは返さない |
+| `POST /conversations/{id}/chat/stream` | NDJSONで初回draft previewと検証状態を配信し、最後に確定Finalを返す |
+| `POST /conversations/{id}/generations/{generation_id}/stop` | 実行中provider taskを停止。停止turnは確定履歴へcommitしない |
+| `POST /conversations/{id}/messages/{assistant_id}/regenerate/stream` | assistant発言の直前user turnから新branchを生成する。bodyはprovider/model/temperature |
+| `POST /conversations/{id}/messages/{user_id}/edit-retry/stream` | user発言の直前までをbranchし、bodyのuser_inputで再生成する |
 
 404は未知のリソース/未設定Provider、409は同時生成・revision競合、422は入力/budget/品質不合格、502はProvider失敗。
-`quality_rejected` の場合はevaluation IDのみ返し、不合格textを返さない。入力と返答はどちらも確定履歴に追加しない。
-ネットワークエラー・timeout・キャンセル時も途中のturnを保存しない。品質検証前の文字列はstream配信しない。
+`quality_rejected` の場合はevaluation IDのみ返し、不合格textを確定履歴へ追加しない。
+通常chatのネットワークエラー・timeout・キャンセル時も途中のturnを保存しない。branch系操作は成功するまでpendingとして一覧から隠し、失敗/Stopではpending branchを破棄する。元conversationのmessageは更新・削除しない。
 
 ## Settings / security
 
