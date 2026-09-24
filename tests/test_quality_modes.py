@@ -171,3 +171,30 @@ async def test_trace_keeps_explicit_post_final_placeholders(tmp_path):
     assert step(result.trace, "memory_extraction")[0].status == "skipped"
     assert step(result.trace, "state_update")[0].status == "skipped"
     assert step(result.trace, "evaluation_log")
+
+
+async def test_balanced_recall_probe_preserves_lexical_memory_matches(tmp_path):
+    storage = Storage(tmp_path / "balanced-lexical.db")
+    character = CharacterCore(name="Balanced")
+    storage.upsert_memory(
+        MemoryRecord(
+            character_id=character.id,
+            type="episodic",
+            content="lighthouse promise stay away",
+            importance=0.8,
+        )
+    )
+    provider = ScriptedProvider(
+        ["visit lighthouse", "stay away from the lighthouse"]
+    )
+    result = await ChatService(storage).run(
+        provider=provider,
+        model="small",
+        character=character,
+        user_input="take a walk",
+    )
+
+    assert result.regenerated_for_recall
+    assert len(provider.calls) == 2
+    analysis = step(result.trace, "draft_analysis")[0]
+    assert "secondary_recall_probe" in analysis.details["inspect_signals"]
