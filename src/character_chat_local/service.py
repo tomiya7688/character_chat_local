@@ -118,9 +118,7 @@ class ChatService:
         status: str = "completed",
         **details: Any,
     ) -> None:
-        trace.steps.append(
-            TurnStepResult(name=name, status=status, details=details)
-        )
+        trace.steps.append(TurnStepResult(name=name, status=status, details=details))
 
     @staticmethod
     def _input_analysis(user_input: str) -> dict[str, Any]:
@@ -384,9 +382,7 @@ class ChatService:
                         trace,
                         "final_guardian",
                         passed=final_guardian.passed,
-                        findings=[
-                            item.category for item in final_guardian.findings
-                        ],
+                        findings=[item.category for item in final_guardian.findings],
                     )
                     guardian = final_guardian
                 else:
