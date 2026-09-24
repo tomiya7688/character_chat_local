@@ -60,11 +60,15 @@ class Storage:
                 );
                 CREATE TABLE IF NOT EXISTS conversations (
                     id TEXT PRIMARY KEY, character_id TEXT NOT NULL,
+                    parent_conversation_id TEXT, forked_from_message_id TEXT,
+                    supersedes_message_id TEXT, fork_reason TEXT,
+                    pending INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS messages (
                     id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
                     role TEXT NOT NULL, content TEXT NOT NULL, provider TEXT, model TEXT,
+                    generation_id TEXT, origin_message_id TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS memories (
@@ -82,7 +86,7 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS generation_runs (
                     id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
                     status TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
-                    error_code TEXT,
+                    error_code TEXT, superseded_by_generation_id TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -105,6 +109,31 @@ class Storage:
             }:
                 db.execute(
                     "ALTER TABLE response_evaluations ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            conversation_columns = {
+                r["name"] for r in db.execute("PRAGMA table_info(conversations)")
+            }
+            for name, ddl in {
+                "parent_conversation_id": "TEXT",
+                "forked_from_message_id": "TEXT",
+                "supersedes_message_id": "TEXT",
+                "fork_reason": "TEXT",
+                "pending": "INTEGER NOT NULL DEFAULT 0",
+            }.items():
+                if name not in conversation_columns:
+                    db.execute(f"ALTER TABLE conversations ADD COLUMN {name} {ddl}")
+            message_columns = {
+                r["name"] for r in db.execute("PRAGMA table_info(messages)")
+            }
+            for name in ("generation_id", "origin_message_id"):
+                if name not in message_columns:
+                    db.execute(f"ALTER TABLE messages ADD COLUMN {name} TEXT")
+            generation_columns = {
+                r["name"] for r in db.execute("PRAGMA table_info(generation_runs)")
+            }
+            if "superseded_by_generation_id" not in generation_columns:
+                db.execute(
+                    "ALTER TABLE generation_runs ADD COLUMN superseded_by_generation_id TEXT"
                 )
             # A process restart cannot resume an in-flight provider stream.
             db.execute(
@@ -150,7 +179,9 @@ class Storage:
     @staticmethod
     def _conversation(db: sqlite3.Connection, conversation_id: str) -> ConversationInfo:
         row = db.execute(
-            "SELECT id, character_id, revision FROM conversations WHERE id=?",
+            "SELECT id, character_id, revision, parent_conversation_id, "
+            "forked_from_message_id, supersedes_message_id, fork_reason, pending "
+            "FROM conversations WHERE id=?",
             (conversation_id,),
         ).fetchone()
         if not row:
@@ -164,15 +195,154 @@ class Storage:
     def list_conversations(self, limit: int = 100) -> list[ConversationInfo]:
         with self.session() as db:
             rows = db.execute(
-                "SELECT id, character_id, revision FROM conversations ORDER BY rowid DESC LIMIT ?",
+                "SELECT id, character_id, revision, parent_conversation_id, "
+                "forked_from_message_id, supersedes_message_id, fork_reason, pending "
+                "FROM conversations WHERE pending=0 ORDER BY rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [ConversationInfo.model_validate(dict(row)) for row in rows]
 
     @staticmethod
+    def _message(
+        db: sqlite3.Connection, conversation_id: str, message_id: str
+    ) -> sqlite3.Row:
+        row = db.execute(
+            "SELECT rowid AS position, id, role, content, provider, model, "
+            "generation_id, origin_message_id FROM messages "
+            "WHERE conversation_id=? AND id=?",
+            (conversation_id, message_id),
+        ).fetchone()
+        if not row:
+            raise KeyError("message not found")
+        return row
+
+    def _create_pending_branch(
+        self,
+        db: sqlite3.Connection,
+        *,
+        source: ConversationInfo,
+        cutoff_position: int,
+        forked_from_message_id: str,
+        supersedes_message_id: str | None,
+        reason: str,
+    ) -> ConversationInfo:
+        branch_id = str(uuid4())
+        db.execute(
+            "INSERT INTO conversations("
+            "id, character_id, parent_conversation_id, forked_from_message_id, "
+            "supersedes_message_id, fork_reason, pending"
+            ") VALUES (?, ?, ?, ?, ?, ?, 1)",
+            (
+                branch_id,
+                source.character_id,
+                source.id,
+                forked_from_message_id,
+                supersedes_message_id,
+                reason,
+            ),
+        )
+        rows = db.execute(
+            "SELECT id, role, content, provider, model, origin_message_id "
+            "FROM messages WHERE conversation_id=? AND rowid<? ORDER BY rowid",
+            (source.id, cutoff_position),
+        ).fetchall()
+        for row in rows:
+            self._insert_message(
+                db,
+                branch_id,
+                ChatMessage(role=row["role"], content=row["content"]),
+                row["provider"],
+                row["model"],
+                origin_message_id=row["origin_message_id"] or row["id"],
+            )
+        return self._conversation(db, branch_id)
+
+    def create_regenerate_branch(
+        self, conversation_id: str, assistant_message_id: str
+    ) -> tuple[ConversationInfo, str]:
+        with self.session() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source = self._conversation(db, conversation_id)
+            if source.pending:
+                raise ConversationConflict("cannot fork a pending conversation")
+            target = self._message(db, conversation_id, assistant_message_id)
+            if target["role"] != "assistant":
+                raise ValueError("regenerate target must be an assistant message")
+            previous = db.execute(
+                "SELECT rowid AS position, id, role, content FROM messages "
+                "WHERE conversation_id=? AND rowid<? ORDER BY rowid DESC LIMIT 1",
+                (conversation_id, target["position"]),
+            ).fetchone()
+            if not previous or previous["role"] != "user":
+                raise ValueError("assistant message must directly follow a user message")
+            branch = self._create_pending_branch(
+                db,
+                source=source,
+                cutoff_position=previous["position"],
+                forked_from_message_id=assistant_message_id,
+                supersedes_message_id=assistant_message_id,
+                reason="regenerate",
+            )
+            return branch, previous["content"]
+
+    def create_edit_retry_branch(
+        self, conversation_id: str, user_message_id: str
+    ) -> ConversationInfo:
+        with self.session() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source = self._conversation(db, conversation_id)
+            if source.pending:
+                raise ConversationConflict("cannot fork a pending conversation")
+            target = self._message(db, conversation_id, user_message_id)
+            if target["role"] != "user":
+                raise ValueError("edit target must be a user message")
+            next_row = db.execute(
+                "SELECT id, role FROM messages WHERE conversation_id=? AND rowid>? "
+                "ORDER BY rowid LIMIT 1",
+                (conversation_id, target["position"]),
+            ).fetchone()
+            supersedes = (
+                next_row["id"] if next_row and next_row["role"] == "assistant" else None
+            )
+            return self._create_pending_branch(
+                db,
+                source=source,
+                cutoff_position=target["position"],
+                forked_from_message_id=user_message_id,
+                supersedes_message_id=supersedes,
+                reason="edit_retry",
+            )
+
+    def discard_pending_branch(self, conversation_id: str) -> None:
+        with self.session() as db:
+            db.execute("BEGIN IMMEDIATE")
+            conversation = self._conversation(db, conversation_id)
+            if not conversation.pending:
+                return
+            parent_id = conversation.parent_conversation_id
+            if parent_id:
+                db.execute(
+                    "UPDATE response_evaluations SET conversation_id=? "
+                    "WHERE conversation_id=?",
+                    (parent_id, conversation_id),
+                )
+                db.execute(
+                    "UPDATE generation_runs SET conversation_id=? "
+                    "WHERE conversation_id=?",
+                    (parent_id, conversation_id),
+                )
+            db.execute(
+                "DELETE FROM conversation_summaries WHERE conversation_id=?",
+                (conversation_id,),
+            )
+            db.execute("DELETE FROM messages WHERE conversation_id=?", (conversation_id,))
+            db.execute("DELETE FROM conversations WHERE id=?", (conversation_id,))
+
+    @staticmethod
     def _generation(db: sqlite3.Connection, generation_id: str) -> GenerationRun:
         row = db.execute(
-            "SELECT id, conversation_id, status, provider, model, error_code, created_at, updated_at "
+            "SELECT id, conversation_id, status, provider, model, error_code, "
+            "superseded_by_generation_id, created_at, updated_at "
             "FROM generation_runs WHERE id=?",
             (generation_id,),
         ).fetchone()
@@ -209,8 +379,8 @@ class Storage:
         *,
         error_code: str | None = None,
     ) -> GenerationRun:
-        if status == "generating":
-            raise ValueError("finish status must be terminal")
+        if status in {"generating", "superseded"}:
+            raise ValueError("finish status must be a direct terminal state")
         with self.session() as db:
             current = self._generation(db, generation_id)
             if current.status != "generating":
@@ -252,8 +422,9 @@ class Storage:
             conversation = self._conversation(db, conversation_id)
             summary = self._summary(db, conversation_id)
             rows = db.execute(
-                "SELECT rowid AS position, id, role, content, provider, model "
-                "FROM messages WHERE conversation_id=? AND rowid>? ORDER BY rowid",
+                "SELECT rowid AS position, id, role, content, provider, model, "
+                "generation_id, origin_message_id FROM messages "
+                "WHERE conversation_id=? AND rowid>? ORDER BY rowid",
                 (conversation_id, summary.through_position),
             )
             yield (
@@ -269,10 +440,16 @@ class Storage:
         message: ChatMessage,
         provider: str | None = None,
         model: str | None = None,
+        *,
+        generation_id: str | None = None,
+        origin_message_id: str | None = None,
     ) -> str:
         message_id = str(uuid4())
         db.execute(
-            "INSERT INTO messages(id, conversation_id, role, content, provider, model) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages("
+            "id, conversation_id, role, content, provider, model, generation_id, "
+            "origin_message_id"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 message_id,
                 conversation_id,
@@ -280,6 +457,8 @@ class Storage:
                 message.content,
                 provider,
                 model,
+                generation_id,
+                origin_message_id,
             ),
         )
         return message_id
@@ -332,7 +511,8 @@ class Storage:
         with self.session() as db:
             self._conversation(db, conversation_id)
             rows = db.execute(
-                "SELECT rowid AS position, id, role, content, provider, model FROM messages "
+                "SELECT rowid AS position, id, role, content, provider, model, "
+                "generation_id, origin_message_id FROM messages "
                 "WHERE conversation_id=? AND rowid>? AND (? IS NULL OR rowid<?) "
                 f"ORDER BY rowid {order} LIMIT ?",
                 (conversation_id, after, before, before, limit),
@@ -436,12 +616,14 @@ class Storage:
             self._insert_message(
                 db, conversation.id, ChatMessage(role="user", content=user_input)
             )
+            generation_id = metadata.get("generation_id")
             self._insert_message(
                 db,
                 conversation.id,
                 ChatMessage(role="assistant", content=text),
                 provider,
                 model,
+                generation_id=generation_id if isinstance(generation_id, str) else None,
             )
             db.execute(
                 "INSERT INTO conversation_summaries(conversation_id, data_json) VALUES (?, ?) "
@@ -449,7 +631,23 @@ class Storage:
                 (conversation.id, summary.model_dump_json()),
             )
             self._evaluation(db, conversation.id, draft, text, guardian, metadata)
+            if (
+                current.pending
+                and current.supersedes_message_id
+                and isinstance(generation_id, str)
+            ):
+                old_generation = db.execute(
+                    "SELECT generation_id FROM messages WHERE id=?",
+                    (current.supersedes_message_id,),
+                ).fetchone()
+                if old_generation and old_generation["generation_id"]:
+                    db.execute(
+                        "UPDATE generation_runs SET status='superseded', "
+                        "superseded_by_generation_id=?, updated_at=CURRENT_TIMESTAMP "
+                        "WHERE id=? AND status='completed'",
+                        (generation_id, old_generation["generation_id"]),
+                    )
             db.execute(
-                "UPDATE conversations SET revision=revision+1 WHERE id=?",
+                "UPDATE conversations SET revision=revision+1, pending=0 WHERE id=?",
                 (conversation.id,),
             )
