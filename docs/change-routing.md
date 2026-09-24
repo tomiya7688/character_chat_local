@@ -7,6 +7,7 @@
 | rolling summary | `summary.py`, `models.py` | `tests/test_summary.py`, `tests/test_long_turn.py` |
 | SQLite / migration / atomicity | `storage.py` | `tests/test_storage.py`, `tests/test_runtime.py`, `tests/test_long_turn.py` |
 | chat / repair / timeout | `service.py` | `tests/test_service.py`, `tests/test_runtime.py` |
+| turn orchestration / Fast-Balanced-Strict / lightweight check | `service.py`, `quality.py`, `models.py`, `storage.py`, `api.py`, `frontend/src/` | `tests/test_quality_modes.py`, `tests/test_api.py`, `frontend/e2e/chat.spec.ts`, 全pytest |
 | generation status / streaming / Stop | `models.py`, `storage.py`, `service.py`, `api.py`, `frontend/src/` | `tests/test_generation_status.py`, `frontend/e2e/chat.spec.ts`, 全pytest |
 | Regenerate / Edit & Retry / branch provenance | `models.py`, `storage.py`, `api.py`, `frontend/src/` | `tests/test_branching.py`, `frontend/e2e/chat.spec.ts`, 全pytest |
 | Provider protocol | `providers.py` | `tests/test_provider_streams.py` |

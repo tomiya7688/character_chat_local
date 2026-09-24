@@ -1,4 +1,4 @@
-import type { Character, CharacterInput, ChatResult, ChatStreamEvent, Conversation, Message, Model, Summary } from './types';
+import type { Character, CharacterInput, ChatResult, ChatStreamEvent, Conversation, Message, Model, QualityMode, Summary } from './types';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
@@ -81,6 +81,12 @@ export class ApiClient {
     return this.request<Conversation>('/conversations', {
       method: 'POST', body: JSON.stringify({ character_id: characterId }),
     });
+  }
+  setConversationQualityMode(id: string, qualityMode: QualityMode | null) {
+    return this.request<Conversation>(
+      `/conversations/${encodeURIComponent(id)}/quality-mode`,
+      { method: 'PUT', body: JSON.stringify({ quality_mode: qualityMode }) },
+    );
   }
   messages(id: string, params: { tail?: boolean; before?: number; after?: number } = { tail: true }, signal?: AbortSignal) {
     const query = new URLSearchParams({ limit: '100' });

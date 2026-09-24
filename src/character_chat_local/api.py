@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import CharacterCore, MemoryRecord
+from .models import CharacterCore, MemoryRecord, QualityMode
 from .providers import ProviderError, ProviderRegistry
 from .service import ChatService, QualityRejected
 from .storage import ConversationConflict, Storage
@@ -31,6 +31,11 @@ class ActiveGeneration:
 class ConversationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     character_id: str = Field(min_length=1, max_length=200)
+
+
+class QualityModeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quality_mode: QualityMode | None = None
 
 
 class RetryRequest(BaseModel):
@@ -51,6 +56,7 @@ def create_app(
     allowed_origins: tuple[str, ...] = (),
     api_token: str | None = None,
     ui_directory: str | Path | None = None,
+    default_quality_mode: QualityMode | None = None,
 ) -> FastAPI:
     """Local-only API. Instantiation/import does not open a database or a provider."""
 
@@ -61,7 +67,18 @@ def create_app(
         app.state.registry = (
             registry if registry is not None else ProviderRegistry.from_env()
         )
-        app.state.service = ChatService(app.state.storage)
+        configured_quality_mode = (
+            default_quality_mode
+            if default_quality_mode is not None
+            else os.getenv("CHARACTER_CHAT_QUALITY_MODE", "balanced").strip().lower()
+        )
+        if configured_quality_mode not in {"fast", "balanced", "strict"}:
+            raise RuntimeError(
+                "CHARACTER_CHAT_QUALITY_MODE must be fast, balanced, or strict"
+            )
+        app.state.service = ChatService(
+            app.state.storage, default_quality_mode=configured_quality_mode
+        )
         app.state.active: dict[str, ActiveGeneration] = {}
         app.state.api_token = (
             api_token
@@ -219,6 +236,17 @@ def create_app(
             storage().create_conversation(payload.character_id)
         )
 
+    @app.put("/conversations/{conversation_id}/quality-mode")
+    def update_conversation_quality_mode(
+        conversation_id: str, payload: QualityModeUpdate
+    ):
+        conversation_or_404(conversation_id)
+        if conversation_id in app.state.active:
+            raise HTTPException(409, "conversation is already generating")
+        return storage().set_conversation_quality_mode(
+            conversation_id, payload.quality_mode
+        )
+
     @app.get("/conversations/{conversation_id}/messages")
     def get_messages(
         conversation_id: str,
@@ -286,6 +314,7 @@ def create_app(
             "conversation_id": conversation_id,
             "provider": payload.provider,
             "model": payload.model,
+            "quality_mode": result.quality_mode,
             "text": result.text,
             "guardian": result.guardian.model_dump(),
             "repaired": result.repaired,

@@ -22,6 +22,8 @@ MemoryType = Literal[
 ]
 RecallMode = Literal["explicit", "implicit", "behavioral", "emotional", "internal_only"]
 GenerationStatus = Literal["generating", "completed", "stopped", "failed", "superseded"]
+QualityMode = Literal["fast", "balanced", "strict"]
+TurnStepStatus = Literal["completed", "skipped"]
 
 
 class ChatMessage(BaseModel):
@@ -51,6 +53,7 @@ class CharacterCore(BaseModel):
     forbidden: list[str] = Field(default_factory=list)
     relationship: list[str] = Field(default_factory=list)
     response_style: list[str] = Field(default_factory=list)
+    quality_mode: QualityMode | None = None
 
 
 class MemoryRecord(BaseModel):
@@ -103,12 +106,32 @@ class GuardianResult(BaseModel):
     findings: list[GuardianFinding] = Field(default_factory=list)
 
 
+class LightweightCheckResult(BaseModel):
+    passed: bool
+    requires_inspection: bool = False
+    findings: list[GuardianFinding] = Field(default_factory=list)
+    inspect_signals: list[str] = Field(default_factory=list)
+
+
+class TurnStepResult(BaseModel):
+    name: str
+    status: TurnStepStatus = "completed"
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class TurnTrace(BaseModel):
+    quality_mode: QualityMode
+    steps: list[TurnStepResult] = Field(default_factory=list)
+
+
 class ChatRunResult(BaseModel):
     text: str
     draft: str
     primary_recall: RecallBundle
     secondary_recall: RecallBundle
     guardian: GuardianResult
+    quality_mode: QualityMode = "balanced"
+    trace: TurnTrace
     regenerated_for_recall: bool = False
     repaired: bool = False
 
@@ -131,6 +154,7 @@ class ConversationInfo(BaseModel):
     supersedes_message_id: str | None = None
     fork_reason: Literal["regenerate", "edit_retry"] | None = None
     pending: bool = False
+    quality_mode: QualityMode | None = None
 
 
 class GenerationRun(BaseModel):

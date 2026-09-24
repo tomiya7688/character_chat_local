@@ -363,3 +363,34 @@ test('failed Regenerate discards the pending branch and leaves the source select
   expect(afterConversations.map(item => item.id)).toEqual(beforeConversations.map(item => item.id));
   expect(await stored(request, originalId)).toHaveLength(2);
 });
+
+
+test('conversation quality mode persists and the effective mode is shown', async ({ page, request }) => {
+  const id = await newChat(page, request, '品質モード');
+  const selector = page.getByLabel('会話品質モード', { exact: true });
+  await expect(selector).toHaveValue('');
+
+  await selector.selectOption('strict');
+  await expect.poll(async () => {
+    const conversations = await (
+      await request.get('/conversations?limit=500', { headers })
+    ).json() as { id: string; quality_mode: string | null }[];
+    return conversations.find(item => item.id === id)?.quality_mode;
+  }).toBe('strict');
+
+  await send(page, 'Strictで確認');
+  await expect(page.getByTestId('message')).toHaveCount(2);
+  await expect(page.locator('.success')).toContainText('Strict');
+
+  await page.reload();
+  await connect(page);
+  await expect(page.getByLabel('会話品質モード', { exact: true })).toHaveValue('strict');
+
+  await page.getByLabel('会話品質モード', { exact: true }).selectOption('');
+  await expect.poll(async () => {
+    const conversations = await (
+      await request.get('/conversations?limit=500', { headers })
+    ).json() as { id: string; quality_mode: string | null }[];
+    return conversations.find(item => item.id === id)?.quality_mode ?? null;
+  }).toBeNull();
+});

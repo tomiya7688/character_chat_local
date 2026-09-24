@@ -31,6 +31,7 @@ buffered `/chat` は成功時に最終text、provider/model、Guardian結果、�
 |---|---|
 | `GET /characters`, `GET /characters/{id}`, `PUT /characters/{id}` | Character一覧・取得・更新（PUTはIDを含む完全な定義） |
 | `GET /conversations` | 会話一覧 |
+| `PUT /conversations/{id}/quality-mode` | 会話単位のquality mode override。bodyは `{"quality_mode":"fast"|"balanced"|"strict"|null}` |
 | `GET /conversations/{id}/messages?after=0&limit=100` | 昇順の履歴。次ページは最後のpositionをafterへ渡す。`tail=true`は最新、`before=<position>`は直前のページ（どちらも返却順は昇順）。cursorの併用は禁止。limitは最大500 |
 | `GET /conversations/{id}/summary` | 出典付き抽出要約と処理済み件数 |
 | `GET /characters/{id}/memories`, `POST /characters/{id}/memories` | 構造化Memory。source指定時は同一characterのmessage IDが必要 |
@@ -47,6 +48,7 @@ buffered `/chat` は成功時に最終text、provider/model、Guardian結果、�
 ## Settings / security
 
 - DB: `CHARACTER_CHAT_DB`（既定 `data/chat.sqlite3`）。起動前に旧DBをバックアップする。migrationは列/テーブルの追加のみ。
+- Global quality mode: `CHARACTER_CHAT_QUALITY_MODE=fast|balanced|strict`。未指定は `balanced`。Character Coreの `quality_mode`、Conversation overrideの順に上書きされる。
 - Ollama: `OLLAMA_BASE_URL`（既定 `http://127.0.0.1:11434`）。
 - OpenAI: `OPENAI_API_KEY`, 任意の `OPENAI_BASE_URL`（API root、`/v1`を含めない）。
 - xAI: `XAI_API_KEY`, 任意の `XAI_BASE_URL`（API root）。Gemini: `GEMINI_API_KEY`。
@@ -58,7 +60,15 @@ LANへbindしない。開発用frontendを別portで使う場合だけ、`create
 
 ## Context / quality limits
 
-通常生成1回 + Secondary Recall再生成1回 + 品質修正1回が上限。total generation timeoutは既定300秒、各出力は最大8,000文字。
+Quality mode:
+- Fast: Primary Recall -> Generate -> Lightweight Check -> Final。追加生成なし。
+- Balanced: Lightweight Checkがinspect signalを出した場合だけDraft Analysis -> Secondary Recall -> Guardianへ進む。必要ならSecondary Recall再生成1回、Repair1回まで。
+- Strict: 常にDraft Analysis -> Secondary Recall -> Guardianを通し、最後にFinal Guardianを再実行。生成回数上限はBalancedと同じ。
+- override優先順位は Conversation > Character > Global。
+
+Turn Traceには各stepのstatusと小さい診断情報を保持する。Knowledge Extraction (#97) と State Update (#98) は順序だけ予約し、現時点では `skipped` と記録する。
+
+total generation timeoutは既定300秒、各出力は最大8,000文字。
 `ChatService(max_prompt_bytes=...)` はUTF-8 bytesとmessage overheadによる上限（既定24,000）であり、モデル固有のtoken数保証ではない。
 小さいcontext windowのmodelには予算調整が必要。固定設定や現在入力を黙って切り捨てず、収まらなければエラーとする。
 抽出型要約の精度と実LLMの会話品質は別途評価する。詳細は `current-state.md`。
@@ -66,7 +76,7 @@ LANへbindしない。開発用frontendを別portで使う場合だけ、`create
 ## Validation
 
 ```bash
-python -m pytest -q tests/test_api.py tests/test_runtime.py
+python -m pytest -q tests/test_api.py tests/test_runtime.py tests/test_quality_modes.py
 python -m pytest -q tests/test_summary.py tests/test_long_turn.py
 python -m pytest -q
 python -m ruff check .

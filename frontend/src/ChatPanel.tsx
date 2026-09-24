@@ -255,7 +255,7 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
     <div className="composer-area">
       {error && <p role="alert" className="error">{error}</p>}
       {sending && <p className="generation-status" role="status">{phaseText}。表示中の下書きは未確定で、保存されません。</p>}
-      {result && !sending && <p className="success" role="status">品質チェック済み{result.repaired ? ' · 応答を修正しました' : ''}{result.regenerated_for_recall ? ' · 記憶を追加して再生成しました' : ''}</p>}
+      {result && !sending && <p className="success" role="status">品質チェック済み · {result.quality_mode === 'fast' ? 'Fast' : result.quality_mode === 'strict' ? 'Strict' : 'Balanced'}{result.repaired ? ' · 応答を修正しました' : ''}{result.regenerated_for_recall ? ' · 記憶を追加して再生成しました' : ''}</p>}
       {editTarget && !sending && <div className="edit-retry-banner" role="status"><span>この発言から新しい会話へ分岐します。元の履歴は残ります。</span><button type="button" onClick={cancelEdit}>編集をやめる</button></div>}
       <form ref={formRef} onSubmit={submit} className="composer">
         <label className="sr-only" htmlFor="chat-input">メッセージ</label>

@@ -12,11 +12,15 @@ const labels: Record<ListField, string> = {
 export function parseCharacter(value: unknown): CharacterInput {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('JSONオブジェクトを指定してください。');
   const record = value as Record<string, unknown>;
-  const allowed = new Set<string>(['id', 'name', 'first_person', 'second_person', ...listFields]);
+  const allowed = new Set<string>(['id', 'name', 'first_person', 'second_person', 'quality_mode', ...listFields]);
   if (Object.keys(record).some(key => !allowed.has(key))) throw new Error('この形式には未対応の設定項目が含まれています。');
   if (typeof record.name !== 'string' || !record.name.trim() || record.name.length > 200) throw new Error('名前は1〜200文字で指定してください。');
   for (const key of ['first_person', 'second_person']) {
     if (record[key] != null && typeof record[key] !== 'string') throw new Error('一人称・二人称には文字列を指定してください。');
+  }
+  if (record.quality_mode != null
+    && !['fast', 'balanced', 'strict'].includes(String(record.quality_mode))) {
+    throw new Error('品質モードは fast / balanced / strict のいずれかを指定してください。');
   }
   for (const key of listFields) {
     if (record[key] !== undefined && (!Array.isArray(record[key]) || !(record[key] as unknown[]).every(x => typeof x === 'string'))) {
@@ -27,6 +31,7 @@ export function parseCharacter(value: unknown): CharacterInput {
     name: record.name.trim(),
     first_person: (record.first_person as string | undefined) || null,
     second_person: (record.second_person as string | undefined) || null,
+    quality_mode: (record.quality_mode as CharacterInput['quality_mode'] | undefined) ?? null,
     ...Object.fromEntries(listFields.map(key => [key, ((record[key] as string[] | undefined) ?? []).map(item => item.trim()).filter(Boolean)])),
   } as CharacterInput;
   // Leave room for the ID emitted by the backend.
@@ -34,7 +39,7 @@ export function parseCharacter(value: unknown): CharacterInput {
   return result;
 }
 const empty: CharacterInput = {
-  name: '', first_person: null, second_person: null,
+  name: '', first_person: null, second_person: null, quality_mode: null,
   speech_style: [], personality: [], values: [], likes: [], dislikes: [],
   background: [], lore: [], forbidden: [], relationship: [], response_style: [],
 };
@@ -82,6 +87,12 @@ export function CharacterEditor({ initial, onSave, onClose }: {
           <label>一人称<input value={data.first_person ?? ''} onChange={e => setData({ ...data, first_person: e.target.value })} placeholder="私" /></label>
           <label>二人称<input value={data.second_person ?? ''} onChange={e => setData({ ...data, second_person: e.target.value })} placeholder="あなた" /></label>
         </div>
+        <label>品質モード<select aria-label="キャラクター品質モード" value={data.quality_mode ?? ''} onChange={e => setData({ ...data, quality_mode: (e.target.value || null) as CharacterInput['quality_mode'] })}>
+          <option value="">Global設定を継承</option>
+          <option value="fast">Fast — 最小検査</option>
+          <option value="balanced">Balanced — 必要時に詳しく検査</option>
+          <option value="strict">Strict — 常に詳しく検査</option>
+        </select></label>
         {listFields.map(key => <label key={key}>{labels[key]}<textarea aria-label={labels[key]} rows={2} value={data[key].join('\n')} onChange={e => setData({ ...data, [key]: e.target.value.split('\n') })} /></label>)}
         <small>禁止フレーズは現在、文字列一致による検出です。意味的な禁止事項の完全な判定ではありません。</small>
       </fieldset>

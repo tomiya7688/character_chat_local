@@ -17,6 +17,7 @@ from .models import (
     GenerationStatus,
     GuardianResult,
     MemoryRecord,
+    QualityMode,
     StoredMessage,
 )
 
@@ -62,7 +63,7 @@ class Storage:
                     id TEXT PRIMARY KEY, character_id TEXT NOT NULL,
                     parent_conversation_id TEXT, forked_from_message_id TEXT,
                     supersedes_message_id TEXT, fork_reason TEXT,
-                    pending INTEGER NOT NULL DEFAULT 0,
+                    pending INTEGER NOT NULL DEFAULT 0, quality_mode TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS messages (
@@ -119,6 +120,7 @@ class Storage:
                 "supersedes_message_id": "TEXT",
                 "fork_reason": "TEXT",
                 "pending": "INTEGER NOT NULL DEFAULT 0",
+                "quality_mode": "TEXT",
             }.items():
                 if name not in conversation_columns:
                     db.execute(f"ALTER TABLE conversations ADD COLUMN {name} {ddl}")
@@ -180,7 +182,8 @@ class Storage:
     def _conversation(db: sqlite3.Connection, conversation_id: str) -> ConversationInfo:
         row = db.execute(
             "SELECT id, character_id, revision, parent_conversation_id, "
-            "forked_from_message_id, supersedes_message_id, fork_reason, pending "
+            "forked_from_message_id, supersedes_message_id, fork_reason, pending, "
+            "quality_mode "
             "FROM conversations WHERE id=?",
             (conversation_id,),
         ).fetchone()
@@ -192,11 +195,23 @@ class Storage:
         with self.session() as db:
             return self._conversation(db, conversation_id)
 
+    def set_conversation_quality_mode(
+        self, conversation_id: str, quality_mode: QualityMode | None
+    ) -> ConversationInfo:
+        with self.session() as db:
+            self._conversation(db, conversation_id)
+            db.execute(
+                "UPDATE conversations SET quality_mode=?, revision=revision+1 WHERE id=?",
+                (quality_mode, conversation_id),
+            )
+            return self._conversation(db, conversation_id)
+
     def list_conversations(self, limit: int = 100) -> list[ConversationInfo]:
         with self.session() as db:
             rows = db.execute(
                 "SELECT id, character_id, revision, parent_conversation_id, "
-                "forked_from_message_id, supersedes_message_id, fork_reason, pending "
+                "forked_from_message_id, supersedes_message_id, fork_reason, pending, "
+                "quality_mode "
                 "FROM conversations WHERE pending=0 ORDER BY rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -230,8 +245,8 @@ class Storage:
         db.execute(
             "INSERT INTO conversations("
             "id, character_id, parent_conversation_id, forked_from_message_id, "
-            "supersedes_message_id, fork_reason, pending"
-            ") VALUES (?, ?, ?, ?, ?, ?, 1)",
+            "supersedes_message_id, fork_reason, pending, quality_mode"
+            ") VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
             (
                 branch_id,
                 source.character_id,
@@ -239,6 +254,7 @@ class Storage:
                 forked_from_message_id,
                 supersedes_message_id,
                 reason,
+                source.quality_mode,
             ),
         )
         rows = db.execute(
