@@ -230,3 +230,41 @@ test('summary excerpts route back to their original stored messages', async ({ p
   await expect(page.locator('.message.highlighted')).toHaveCount(1);
   await expect(page.locator('.message.highlighted')).toBeInViewport();
 });
+
+
+test('draft chunks appear before the validated final response replaces them', async ({ page, request }) => {
+  const id = await newChat(page, request, 'ストリーム確認');
+  await page.getByLabel('モデル', { exact: true }).selectOption('stream-model');
+  await page.getByLabel('メッセージ', { exact: true }).fill('逐次表示して');
+  await page.getByRole('button', { name: '送信', exact: true }).click();
+
+  const preview = page.getByTestId('draft-preview');
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText('少しずつ');
+  await expect(preview).toContainText('未確定の下書き');
+
+  await expect(page.getByTestId('message')).toHaveCount(2);
+  await expect(preview).toHaveCount(0);
+  await expect(page.locator('.message.assistant')).toContainText('少しずつ表示して、最後に確定するよ。');
+  await expect(page.getByLabel('メッセージ', { exact: true })).toHaveValue('');
+  expect(await stored(request, id)).toHaveLength(2);
+});
+
+test('Stop cancels the active provider stream without committing the turn', async ({ page, request }) => {
+  const id = await newChat(page, request, '停止確認');
+  await page.getByLabel('モデル', { exact: true }).selectOption('slow-stream');
+  const input = page.getByLabel('メッセージ', { exact: true });
+  await input.fill('途中で止める入力');
+  await page.getByRole('button', { name: '送信', exact: true }).click();
+
+  await expect(page.getByTestId('draft-preview')).toContainText('途中00');
+  const stop = page.getByRole('button', { name: '停止', exact: true });
+  await expect(stop).toBeEnabled();
+  await stop.click();
+
+  await expect(page.getByRole('alert')).toContainText('生成を停止しました');
+  await expect(page.getByTestId('draft-preview')).toHaveCount(0);
+  await expect(input).toHaveValue('途中で止める入力');
+  await expect(page.getByRole('button', { name: '送信', exact: true })).toBeEnabled();
+  expect(await stored(request, id)).toHaveLength(0);
+});
