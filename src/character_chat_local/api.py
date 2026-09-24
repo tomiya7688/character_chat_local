@@ -523,6 +523,7 @@ def create_app(
         conversation_id: str, message_id: str, payload: RetryRequest
     ):
         conversation_or_404(conversation_id)
+        provider_or_404(payload.provider)
         if conversation_id in app.state.active:
             raise HTTPException(409, "conversation is already generating")
         try:
@@ -551,6 +552,7 @@ def create_app(
         conversation_id: str, message_id: str, payload: ChatRequest
     ):
         conversation_or_404(conversation_id)
+        provider_or_404(payload.provider)
         if conversation_id in app.state.active:
             raise HTTPException(409, "conversation is already generating")
         try:
