@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import aclosing
-from typing import Any, Awaitable, Callable
+from typing import Any, Protocol
 
 import httpx
 
@@ -22,7 +22,8 @@ from .storage import Storage
 from .summary import SummaryEngine
 
 
-ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+class ProgressCallback(Protocol):
+    async def __call__(self, event: dict[str, Any]) -> None: ...
 
 
 class QualityRejected(RuntimeError):
@@ -37,7 +38,7 @@ async def _collect(
     model: str,
     messages: list[ChatMessage],
     temperature: float,
-    on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    on_chunk: ProgressCallback | None = None,
 ) -> str:
     parts: list[str] = []
     length = 0
