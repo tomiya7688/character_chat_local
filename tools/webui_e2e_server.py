@@ -49,7 +49,8 @@ class TestProvider(AIProvider):
             raise ProviderError("DO_NOT_LEAK_PROVIDER_DETAIL")
         if model == "stream-model":
             for part in ["少しずつ", "表示して、", "最後に確定するよ。"]:
-                await asyncio.sleep(0.15)
+                # Keep each chunk observable across browser/network scheduling.
+                await asyncio.sleep(0.6)
                 yield part
             return
         if model == "slow-stream":
