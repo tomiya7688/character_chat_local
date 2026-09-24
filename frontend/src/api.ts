@@ -90,28 +90,19 @@ export class ApiClient {
   summary(id: string, signal?: AbortSignal) {
     return this.request<Summary>(`/conversations/${encodeURIComponent(id)}/summary`, { signal });
   }
-  async *chatStream(
-    id: string,
-    provider: string,
-    model: string,
-    userInput: string,
-    temperature: number,
-  ): AsyncGenerator<ChatStreamEvent> {
+  private async *streamRequest(path: string, body: object): AsyncGenerator<ChatStreamEvent> {
     const headers = new Headers({ 'Content-Type': 'application/json' });
     if (this.token) headers.set('Authorization', `Bearer ${this.token}`);
     let response: Response;
     try {
-      response = await fetch(
-        `${this.base}/conversations/${encodeURIComponent(id)}/chat/stream`,
-        {
-          method: 'POST',
-          headers,
-          credentials: 'omit',
-          cache: 'no-store',
-          redirect: 'error',
-          body: JSON.stringify({ provider, model, user_input: userInput, temperature }),
-        },
-      );
+      response = await fetch(`${this.base}${path}`, {
+        method: 'POST',
+        headers,
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        body: JSON.stringify(body),
+      });
     } catch {
       throw new ApiError('接続が切れました。履歴を再読込して保存状況を確認してから再送してください。', 0);
     }
@@ -145,6 +136,46 @@ export class ApiClient {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  chatStream(
+    id: string,
+    provider: string,
+    model: string,
+    userInput: string,
+    temperature: number,
+  ) {
+    return this.streamRequest(
+      `/conversations/${encodeURIComponent(id)}/chat/stream`,
+      { provider, model, user_input: userInput, temperature },
+    );
+  }
+
+  regenerateStream(
+    id: string,
+    messageId: string,
+    provider: string,
+    model: string,
+    temperature: number,
+  ) {
+    return this.streamRequest(
+      `/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/regenerate/stream`,
+      { provider, model, temperature },
+    );
+  }
+
+  editRetryStream(
+    id: string,
+    messageId: string,
+    provider: string,
+    model: string,
+    userInput: string,
+    temperature: number,
+  ) {
+    return this.streamRequest(
+      `/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/edit-retry/stream`,
+      { provider, model, user_input: userInput, temperature },
+    );
   }
 
   private streamEvent(line: string): ChatStreamEvent {
