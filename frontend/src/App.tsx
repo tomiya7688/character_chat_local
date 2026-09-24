@@ -78,6 +78,12 @@ export default function App() {
   const selectConversation = (chat: Conversation) => {
     setConversationId(chat.id); setCharacterId(chat.character_id); updateLocation(chat.id); setMobileMenu(false); setError('');
   };
+  function selectBranchedConversation(id: string) {
+    setConversationId(id);
+    updateLocation(id);
+    setRefresh(value => value + 1);
+  }
+
   async function startConversation() {
     if (locked || !characterId) return;
     setBusy(true); setError('');
@@ -112,7 +118,7 @@ export default function App() {
         <div className="section-heading conversations-heading"><h2>これまでの会話</h2><button className="quiet" disabled={locked} onClick={() => setRefresh(value => value + 1)}>一覧更新</button></div>
         <nav className="conversation-list" aria-label="保存した会話">
           {conversations.filter(chat => chat.character_id === characterId).map((chat, index) => <button key={chat.id} className={chat.id === conversationId ? 'selected' : ''} aria-current={chat.id === conversationId ? 'page' : undefined} disabled={locked} onClick={() => selectConversation(chat)}>
-            <span>会話 {chat.id.slice(0, 8)}</span><small>{index === 0 ? '最近の会話' : '保存済み'}</small></button>)}
+            <span>会話 {chat.id.slice(0, 8)}</span><small>{chat.parent_conversation_id ? (chat.fork_reason === 'regenerate' ? '再生成branch' : '編集branch') : index === 0 ? '最近の会話' : '保存済み'}</small></button>)}
           {!conversations.some(chat => chat.character_id === characterId) && <p className="muted">会話はまだありません。</p>}
         </nav>
         <footer className="sidebar-footer">会話はローカルDBに保存します。<br />一覧は最大500件まで表示します。</footer>
@@ -132,7 +138,7 @@ export default function App() {
         {modelError && connected && <p className="model-warning" role="status">{modelError}</p>}
         {error && <p className="error workspace-error" role="alert">{error}</p>}
         {connected && conversationId && character
-          ? <ChatPanel key={`${conversationId}:${refresh}`} api={api} conversationId={conversationId} name={character.name} provider={provider} model={model} temperature={temperature} onBusy={setBusy} />
+          ? <ChatPanel key={`${conversationId}:${refresh}`} api={api} conversationId={conversationId} name={character.name} provider={provider} model={model} temperature={temperature} onBusy={setBusy} onBranchCreated={selectBranchedConversation} />
           : <section className="welcome"><p className="eyebrow">YOUR LOCAL CONVERSATION SPACE</p><h2>{loading ? '会話の準備をしています' : 'ここから、会話をはじめよう。'}</h2><p>キャラクターとモデルを選んで、あなたのペースで。<br />設定も、これまでの会話も、この場所に残ります。</p>
             {!loading && connected && !characters.length && <button className="primary" onClick={() => setEditor('new')}>最初のキャラクターを追加</button>}
             {!loading && connected && character && <button className="primary" disabled={busy} onClick={() => void startConversation()}>会話をはじめる</button>}
