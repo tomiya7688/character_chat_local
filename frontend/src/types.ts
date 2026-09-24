@@ -4,10 +4,12 @@ export const listFields = [
   'lore', 'forbidden', 'relationship', 'response_style',
 ] as const;
 export type ListField = typeof listFields[number];
+export type QualityMode = 'fast' | 'balanced' | 'strict';
 export type CharacterInput = Record<ListField, string[]> & {
   name: string;
   first_person: string | null;
   second_person: string | null;
+  quality_mode: QualityMode | null;
 };
 export type Character = CharacterInput & { id: string };
 export interface Conversation {
@@ -19,6 +21,7 @@ export interface Conversation {
   supersedes_message_id: string | null;
   fork_reason: 'regenerate' | 'edit_retry' | null;
   pending: boolean;
+  quality_mode: QualityMode | null;
 }
 export interface Model { id: string; provider: string; display_name: string | null }
 export interface Message {
@@ -41,6 +44,7 @@ export interface ChatResult {
   conversation_id: string;
   provider: string;
   model: string;
+  quality_mode: QualityMode;
   text: string;
   guardian: { passed: boolean };
   repaired: boolean;
