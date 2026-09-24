@@ -289,7 +289,9 @@ def create_app(
             "regenerated_for_recall": result.regenerated_for_recall,
         }
 
-    def finish_generation(generation_id: str, status: str, error_code: str | None = None):
+    def finish_generation(
+        generation_id: str, status: str, error_code: str | None = None
+    ):
         try:
             return storage().finish_generation(
                 generation_id, status, error_code=error_code
@@ -429,16 +431,6 @@ def create_app(
                         "message": "Conversation changed during generation.",
                     }
                 )
-            except Exception:
-                finish_generation(generation.id, "failed", "internal_error")
-                queue.put_nowait(
-                    {
-                        "type": "error",
-                        "generation_id": generation.id,
-                        "code": "internal_error",
-                        "message": "Generation failed.",
-                    }
-                )
             else:
                 finish_generation(generation.id, "completed")
                 queue.put_nowait(
@@ -449,6 +441,17 @@ def create_app(
                     }
                 )
             finally:
+                persisted = storage().get_generation(generation.id)
+                if persisted.status == "generating":
+                    finish_generation(generation.id, "failed", "internal_error")
+                    queue.put_nowait(
+                        {
+                            "type": "error",
+                            "generation_id": generation.id,
+                            "code": "internal_error",
+                            "message": "Generation failed.",
+                        }
+                    )
                 current = app.state.active.get(conversation_id)
                 if current is session:
                     app.state.active.pop(conversation_id, None)
