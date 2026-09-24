@@ -35,3 +35,12 @@ export interface ChatResult {
   repaired: boolean;
   regenerated_for_recall: boolean;
 }
+
+export type GenerationPhase = 'generating' | 'checking' | 'secondary_recall' | 'repairing';
+export type ChatStreamEvent =
+  | { type: 'started'; generation_id: string }
+  | { type: 'phase'; generation_id: string; phase: GenerationPhase }
+  | { type: 'draft_delta'; generation_id: string; text: string }
+  | { type: 'final'; generation_id: string; result: ChatResult }
+  | { type: 'stopped'; generation_id: string; status: 'stopped' }
+  | { type: 'error'; generation_id: string; code: string; message: string; evaluation_id?: string };

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import Markdown from 'react-markdown';
 import { ApiClient, ApiError, errorMessage } from './api';
-import type { ChatResult, Message, Summary } from './types';
+import type { ChatResult, GenerationPhase, Message, Summary } from './types';
 
 type WindowRequest = { tail?: boolean; before?: number; after?: number };
 
@@ -14,6 +14,9 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [preview, setPreview] = useState('');
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<GenerationPhase | 'stopping'>('generating');
   const [error, setError] = useState('');
   const [uncertain, setUncertain] = useState(false);
   const [latest, setLatest] = useState(true);
@@ -85,27 +88,78 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (sendLock.current || loading || uncertain || !draft.trim() || !model.trim() || !provider) return;
-    sendLock.current = true; setSending(true); onBusy(true); setError(''); setResult(null);
+    const input = draft.trim();
+    if (sendLock.current || loading || uncertain || !input || !model.trim() || !provider) return;
+    sendLock.current = true;
+    setSending(true); onBusy(true); setError(''); setResult(null);
+    setPreview(''); setGenerationId(null); setPhase('generating');
     let committed = false;
+    let stopped = false;
     try {
-      const accepted = await api.chat(conversationId, provider, model.trim(), draft.trim(), temperature);
-      if (accepted.conversation_id !== conversationId || !accepted.guardian.passed || !accepted.text.trim()) {
+      let accepted: ChatResult | null = null;
+      for await (const streamEvent of api.chatStream(
+        conversationId, provider, model.trim(), input, temperature,
+      )) {
+        if (streamEvent.type === 'started') setGenerationId(streamEvent.generation_id);
+        else if (streamEvent.type === 'draft_delta') setPreview(current => current + streamEvent.text);
+        else if (streamEvent.type === 'phase') setPhase(streamEvent.phase);
+        else if (streamEvent.type === 'final') accepted = streamEvent.result;
+        else if (streamEvent.type === 'stopped') {
+          stopped = true;
+          setPreview('');
+          setError('生成を停止しました。入力と途中の応答は会話履歴へ保存されていません。');
+        } else if (streamEvent.type === 'error') {
+          const status = streamEvent.code === 'quality_rejected' || streamEvent.code === 'invalid_request'
+            ? 422 : streamEvent.code === 'conversation_conflict' ? 409
+              : streamEvent.code === 'provider_error' ? 502 : 500;
+          const message = streamEvent.code === 'quality_rejected'
+            ? '品質チェックを通過する応答が得られませんでした。入力は未保存です。内容やモデルを変えて再送できます。'
+            : streamEvent.code === 'provider_error'
+              ? 'モデルへの接続に失敗しました。Ollamaの起動・モデル・Provider設定を確認してください。'
+              : streamEvent.code === 'conversation_conflict'
+                ? '会話が別の更新と競合しました。履歴を再読込してから再送してください。'
+                : streamEvent.code === 'invalid_request'
+                  ? '入力または設定が上限を超えています。文字数やキャラクター設定を確認してください。'
+                  : '生成に失敗しました。履歴を再読込して保存状況を確認してください。';
+          throw new ApiError(message, status, streamEvent.code);
+        }
+      }
+      if (stopped) return;
+      if (!accepted || accepted.conversation_id !== conversationId
+        || !accepted.guardian.passed || !accepted.text.trim()) {
         throw new ApiError('応答の検証結果を確認できませんでした。履歴を再読込してください。', 0);
       }
       committed = true;
-      setDraft(''); setResult(accepted); setFocusMessage(null);
+      setDraft(''); setPreview(''); setResult(accepted); setFocusMessage(null);
       await load();
       if (summaryOpen) await loadSummary();
     } catch (e) {
+      setPreview('');
       setError(committed
         ? '応答は保存されましたが、履歴を取得できませんでした。再送せず「履歴を再読込」を押してください。'
         : errorMessage(e));
       if (!committed && e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 409)) setUncertain(true);
     } finally {
-      sendLock.current = false; setSending(false); onBusy(false); inputRef.current?.focus();
+      sendLock.current = false; setSending(false); setGenerationId(null); onBusy(false); inputRef.current?.focus();
     }
   }
+
+  async function stopGeneration() {
+    if (!sending || !generationId || phase === 'stopping') return;
+    setPhase('stopping');
+    try {
+      await api.stopGeneration(conversationId, generationId);
+    } catch (e) {
+      setError(errorMessage(e));
+      setPhase('generating');
+    }
+  }
+
+  const phaseText = phase === 'generating' ? '応答を生成中'
+    : phase === 'secondary_recall' ? '関連する記憶を追加確認中'
+      : phase === 'repairing' ? '品質チェックに基づいて応答を修正中'
+        : phase === 'stopping' ? '生成を停止中'
+          : '応答を検証中';
 
   const first = messages[0];
   const last = messages[messages.length - 1];
@@ -135,6 +189,13 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
                 }}>{message.content}</Markdown></div>
               : <p className="plain-message">{message.content}</p>}
           </article>)}
+          {sending && preview && <article data-testid="draft-preview" className="message assistant draft-preview">
+            <header><strong>{name}</strong><small>未確定の下書き · Finalで置換されます</small></header>
+            <div className="markdown"><Markdown skipHtml components={{
+              img: ({ alt }) => <span className="muted">［画像: {alt || '外部画像は読み込みません'}］</span>,
+              a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+            }}>{preview}</Markdown></div>
+          </article>}
           <div ref={endRef} />
         </div>
       </div>
@@ -154,7 +215,7 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
     </div>
     <div className="composer-area">
       {error && <p role="alert" className="error">{error}</p>}
-      {sending && <p className="generation-status" role="status">応答を生成・検証しています。合格した応答だけを表示します。</p>}
+      {sending && <p className="generation-status" role="status">{phaseText}。表示中の下書きは未確定で、保存されません。</p>}
       {result && !sending && <p className="success" role="status">品質チェック済み{result.repaired ? ' · 応答を修正しました' : ''}{result.regenerated_for_recall ? ' · 記憶を追加して再生成しました' : ''}</p>}
       <form ref={formRef} onSubmit={submit} className="composer">
         <label className="sr-only" htmlFor="chat-input">メッセージ</label>
@@ -164,7 +225,9 @@ export function ChatPanel({ api, conversationId, name, provider, model, temperat
               e.preventDefault(); formRef.current?.requestSubmit();
             }
           }} />
-        <button className="primary" disabled={sending || loading || uncertain || !draft.trim() || !model.trim() || !provider}>{sending ? '検証中…' : '送信'}</button>
+        {sending
+          ? <button type="button" className="danger" disabled={!generationId || phase === 'stopping'} onClick={() => void stopGeneration()}>{phase === 'stopping' ? '停止中…' : '停止'}</button>
+          : <button className="primary" disabled={loading || uncertain || !draft.trim() || !model.trim() || !provider}>送信</button>}
       </form>
       <div className="composer-hint"><span>Ctrl / ⌘ + Enterで送信 · 下書きはこのタブ内のみ</span><span>{draft.length} / 4,000</span></div>
     </div>

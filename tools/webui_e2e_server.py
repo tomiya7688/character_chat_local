@@ -24,7 +24,14 @@ class TestProvider(AIProvider):
     async def list_models(self) -> list[ModelInfo]:
         return [
             ModelInfo(id=model, provider=self.id)
-            for model in ["test-small", "test-alt", "repair-model", "offline"]
+            for model in [
+                "test-small",
+                "test-alt",
+                "stream-model",
+                "slow-stream",
+                "repair-model",
+                "offline",
+            ]
         ]
 
     async def stream_chat(
@@ -40,6 +47,17 @@ class TestProvider(AIProvider):
         await asyncio.sleep(0.2)
         if model == "offline":
             raise ProviderError("DO_NOT_LEAK_PROVIDER_DETAIL")
+        if model == "stream-model":
+            for part in ["少しずつ", "表示して、", "最後に確定するよ。"]:
+                # Keep each chunk observable across browser/network scheduling.
+                await asyncio.sleep(0.6)
+                yield part
+            return
+        if model == "slow-stream":
+            for index in range(50):
+                await asyncio.sleep(0.1)
+                yield f"途中{index:02d} "
+            return
         if "拒否テスト" in user:
             yield "As an AI, I cannot act as a character."
             return

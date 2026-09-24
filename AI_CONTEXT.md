@@ -21,7 +21,7 @@
 ## Invariants
 - Character Core / Canonを会話要約や推測で上書きしない。
 - 要約は会話単位。Memoryのsourceは同一characterに所属する。
-- 不合格draftを公開APIや確定会話へ返さない。評価ログとは分離する。
+- buffered `/chat` は不合格draftを返さない。`/chat/stream` の初回draft previewは未確定と明示し、保存・Memory/State更新の正本にしない。Finalだけを確定会話へcommitする。
 - 再生成は有限。通常1回、追加Recall1回、品質修正1回まで。
 - 保存はturn単位で原子的に行う。推論中にSQLite書込lockを保持しない。
 - Credentialはbackendの設定。frontend、DB、エラーへ設定値を流さない。

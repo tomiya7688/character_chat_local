@@ -13,6 +13,8 @@ from .models import (
     ChatMessage,
     ConversationInfo,
     ConversationSummary,
+    GenerationRun,
+    GenerationStatus,
     GuardianResult,
     MemoryRecord,
     StoredMessage,
@@ -77,8 +79,17 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS conversation_summaries (
                     conversation_id TEXT PRIMARY KEY, data_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS generation_runs (
+                    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
+                    status TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
+                    error_code TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE INDEX IF NOT EXISTS ix_messages_conversation
                     ON messages(conversation_id);
+                CREATE INDEX IF NOT EXISTS ix_generation_runs_conversation
+                    ON generation_runs(conversation_id, created_at);
                 CREATE INDEX IF NOT EXISTS ix_memories_character
                     ON memories(character_id);
             """)
@@ -95,6 +106,11 @@ class Storage:
                 db.execute(
                     "ALTER TABLE response_evaluations ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"
                 )
+            # A process restart cannot resume an in-flight provider stream.
+            db.execute(
+                "UPDATE generation_runs SET status='failed', error_code='server_restart', "
+                "updated_at=CURRENT_TIMESTAMP WHERE status='generating'"
+            )
 
     def save_character(self, character: CharacterCore) -> None:
         with self.session() as db:
@@ -152,6 +168,61 @@ class Storage:
                 (limit,),
             ).fetchall()
         return [ConversationInfo.model_validate(dict(row)) for row in rows]
+
+    @staticmethod
+    def _generation(db: sqlite3.Connection, generation_id: str) -> GenerationRun:
+        row = db.execute(
+            "SELECT id, conversation_id, status, provider, model, error_code, created_at, updated_at "
+            "FROM generation_runs WHERE id=?",
+            (generation_id,),
+        ).fetchone()
+        if not row:
+            raise KeyError("generation not found")
+        return GenerationRun.model_validate(dict(row))
+
+    def start_generation(
+        self, conversation_id: str, provider: str, model: str
+    ) -> GenerationRun:
+        generation_id = str(uuid4())
+        with self.session() as db:
+            self._conversation(db, conversation_id)
+            if db.execute(
+                "SELECT 1 FROM generation_runs WHERE conversation_id=? AND status='generating'",
+                (conversation_id,),
+            ).fetchone():
+                raise ConversationConflict("conversation is already generating")
+            db.execute(
+                "INSERT INTO generation_runs(id, conversation_id, status, provider, model) "
+                "VALUES (?, ?, 'generating', ?, ?)",
+                (generation_id, conversation_id, provider, model),
+            )
+            return self._generation(db, generation_id)
+
+    def get_generation(self, generation_id: str) -> GenerationRun:
+        with self.session() as db:
+            return self._generation(db, generation_id)
+
+    def finish_generation(
+        self,
+        generation_id: str,
+        status: GenerationStatus,
+        *,
+        error_code: str | None = None,
+    ) -> GenerationRun:
+        if status == "generating":
+            raise ValueError("finish status must be terminal")
+        with self.session() as db:
+            current = self._generation(db, generation_id)
+            if current.status != "generating":
+                if current.status == status:
+                    return current
+                raise ConversationConflict("generation already finished")
+            db.execute(
+                "UPDATE generation_runs SET status=?, error_code=?, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=?",
+                (status, error_code, generation_id),
+            )
+            return self._generation(db, generation_id)
 
     @staticmethod
     def _summary(db: sqlite3.Connection, conversation_id: str) -> ConversationSummary:
