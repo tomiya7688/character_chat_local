@@ -24,9 +24,7 @@ def test_edit_retry_branch_copies_only_prefix_and_stays_hidden_until_commit(setu
         "fake",
         "small",
     )
-    storage.add_message(
-        conversation_id, ChatMessage(role="user", content="後続の質問")
-    )
+    storage.add_message(conversation_id, ChatMessage(role="user", content="後続の質問"))
     storage.add_message(
         conversation_id,
         ChatMessage(role="assistant", content="後続の返答"),
@@ -78,7 +76,9 @@ async def test_regenerate_branch_supersedes_only_after_replacement_commits(
     provider.replies = ["元の返答です。", "再生成した返答です。"]
     service = ChatService(storage)
 
-    original_generation = storage.start_generation(conversation_id, provider.id, "small")
+    original_generation = storage.start_generation(
+        conversation_id, provider.id, "small"
+    )
     await service.run(
         provider=provider,
         model="small",
@@ -94,9 +94,7 @@ async def test_regenerate_branch_supersedes_only_after_replacement_commits(
     assert target.role == "assistant"
     assert target.generation_id == original_generation.id
 
-    branch, retry_input = storage.create_regenerate_branch(
-        conversation_id, target.id
-    )
+    branch, retry_input = storage.create_regenerate_branch(conversation_id, target.id)
     assert retry_input == "この返答をあとで再生成する"
     assert storage.get_generation(original_generation.id).status == "completed"
 
