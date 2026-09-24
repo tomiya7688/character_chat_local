@@ -3,7 +3,7 @@ import { ApiClient, errorMessage } from './api';
 import { CharacterEditor } from './CharacterEditor';
 import { ChatPanel } from './ChatPanel';
 import { Settings } from './Settings';
-import type { Character, CharacterInput, Conversation, Model } from './types';
+import type { Character, CharacterInput, Conversation, Model, QualityMode } from './types';
 
 function updateLocation(id: string) {
   const url = new URL(window.location.href);
@@ -74,6 +74,7 @@ export default function App() {
   }, [api, provider, connected, modelRefresh]);
 
   const character = characters.find(item => item.id === characterId);
+  const conversation = conversations.find(item => item.id === conversationId);
   const locked = busy || loading;
   const selectConversation = (chat: Conversation) => {
     setConversationId(chat.id); setCharacterId(chat.character_id); updateLocation(chat.id); setMobileMenu(false); setError('');
@@ -93,6 +94,19 @@ export default function App() {
     } catch (e) { setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
+  async function setConversationQualityMode(value: string) {
+    if (!conversationId || locked) return;
+    setBusy(true); setError('');
+    try {
+      const saved = await api.setConversationQualityMode(
+        conversationId,
+        (value || null) as QualityMode | null,
+      );
+      setConversations(current => current.map(item => item.id === saved.id ? saved : item));
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); }
+  }
+
   async function saveCharacter(data: CharacterInput, id?: string) {
     const saved = await api.saveCharacter(data, id);
     setCharacters(current => id ? current.map(item => item.id === id ? saved : item) : [...current, saved]);
@@ -132,6 +146,12 @@ export default function App() {
             : <select aria-label="モデル" value={model} disabled={locked || modelLoading || !connected} onChange={e => setModel(e.target.value)}>
               {!models.length && <option value="">{modelLoading ? 'モデルを読込中…' : 'モデルを選択'}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.display_name || item.id}</option>)}</select>}</label>
           <label className="temperature-field">Temperature<input type="number" min={0} max={2} step={0.1} value={temperature} disabled={locked} onChange={e => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) setTemperature(Math.min(2, Math.max(0, value))); }} /></label>
+          <label className="quality-mode-field">品質モード<select aria-label="会話品質モード" value={conversation?.quality_mode ?? ''} disabled={locked || !conversation} onChange={e => void setConversationQualityMode(e.target.value)}>
+            <option value="">継承</option>
+            <option value="fast">Fast</option>
+            <option value="balanced">Balanced</option>
+            <option value="strict">Strict</option>
+          </select></label>
           <label className="checkbox"><input type="checkbox" checked={manual} disabled={locked} onChange={e => { manualRef.current = e.target.checked; setManual(e.target.checked); setModel(e.target.checked ? model : models[0]?.id ?? ''); }} />IDを直接指定</label>
           <button disabled={locked || modelLoading || !connected} onClick={() => setModelRefresh(value => value + 1)}>モデル更新</button>
         </section>
