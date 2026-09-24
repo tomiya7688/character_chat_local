@@ -185,9 +185,7 @@ async def test_balanced_recall_probe_preserves_lexical_memory_matches(tmp_path):
             importance=0.8,
         )
     )
-    provider = ScriptedProvider(
-        ["visit lighthouse", "stay away from the lighthouse"]
-    )
+    provider = ScriptedProvider(["visit lighthouse", "stay away from the lighthouse"])
     result = await ChatService(storage).run(
         provider=provider,
         model="small",
