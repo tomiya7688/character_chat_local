@@ -268,3 +268,98 @@ test('Stop cancels the active provider stream without committing the turn', asyn
   await expect(page.getByRole('button', { name: '送信', exact: true })).toBeEnabled();
   expect(await stored(request, id)).toHaveLength(0);
 });
+
+
+test('Regenerate creates a new conversation branch without rewriting the source', async ({ page, request }) => {
+  const originalId = await newChat(page, request, '再生成branch');
+  await send(page, '同じ発言から別の返答を作って');
+  await expect(page.getByTestId('message')).toHaveCount(2);
+  const before = await stored(request, originalId) as { id: string; role: string; content: string }[];
+  expect(before).toHaveLength(2);
+
+  await page.locator('.message.assistant').getByRole('button', { name: '再生成', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('conversation')).not.toBe(originalId);
+  const branchId = new URL(page.url()).searchParams.get('conversation');
+  expect(branchId).toBeTruthy();
+  await expect(page.getByTestId('message')).toHaveCount(2);
+
+  const sourceAfter = await stored(request, originalId) as { id: string; content: string }[];
+  expect(sourceAfter.map(item => item.id)).toEqual(before.map(item => item.id));
+  const branchMessages = await stored(request, branchId! ) as { id: string; content: string }[];
+  expect(branchMessages).toHaveLength(2);
+  expect(branchMessages[0]?.content).toBe('同じ発言から別の返答を作って');
+  expect(branchMessages[1]?.id).not.toBe(before[1]?.id);
+
+  const conversations = await (await request.get('/conversations?limit=500', { headers })).json() as {
+    id: string; parent_conversation_id: string | null; fork_reason: string | null; pending: boolean;
+  }[];
+  const branch = conversations.find(item => item.id === branchId);
+  expect(branch?.parent_conversation_id).toBe(originalId);
+  expect(branch?.fork_reason).toBe('regenerate');
+  expect(branch?.pending).toBe(false);
+  await expect(page.getByRole('navigation', { name: '保存した会話' })).toContainText('再生成branch');
+});
+
+test('Edit & Retry forks before the edited user message and drops later turns only in the new branch', async ({ page, request }) => {
+  const originalId = await newChat(page, request, '編集branch');
+  for (const text of ['一つ目', '二つ目', '三つ目']) {
+    const response = await request.post(`/conversations/${originalId}/chat`, {
+      headers, data: { provider: 'ollama', model: 'test-small', user_input: text },
+    });
+    expect(response.status()).toBe(200);
+  }
+  await page.getByRole('button', { name: '履歴を再読込' }).click();
+  await expect(page.getByTestId('message')).toHaveCount(6);
+  const original = await stored(request, originalId) as { id: string; role: string; content: string }[];
+  const secondUser = original[2];
+  expect(secondUser?.content).toBe('二つ目');
+
+  const secondUserArticle = page.locator('.message.user').nth(1);
+  await secondUserArticle.getByRole('button', { name: '編集して再送', exact: true }).click();
+  const input = page.getByLabel('メッセージ', { exact: true });
+  await expect(input).toHaveValue('二つ目');
+  await expect(page.getByText('元の履歴は残ります')).toBeVisible();
+  await input.fill('二つ目を編集した内容');
+  await page.getByRole('button', { name: '編集して分岐', exact: true }).click();
+
+  await expect.poll(() => new URL(page.url()).searchParams.get('conversation')).not.toBe(originalId);
+  const branchId = new URL(page.url()).searchParams.get('conversation');
+  expect(branchId).toBeTruthy();
+  await expect(page.getByTestId('message')).toHaveCount(4);
+
+  const sourceAfter = await stored(request, originalId) as { id: string; content: string }[];
+  expect(sourceAfter.map(item => item.id)).toEqual(original.map(item => item.id));
+  const branchMessages = await stored(request, branchId!) as { content: string }[];
+  expect(branchMessages).toHaveLength(4);
+  expect(branchMessages.map(item => item.content)).toEqual([
+    '一つ目',
+    '[test-small] 一つ目 を受け取ったよ。',
+    '二つ目を編集した内容',
+    '[test-small] 二つ目を編集した内容 を受け取ったよ。',
+  ]);
+
+  const conversations = await (await request.get('/conversations?limit=500', { headers })).json() as {
+    id: string; parent_conversation_id: string | null; forked_from_message_id: string | null; fork_reason: string | null;
+  }[];
+  const branch = conversations.find(item => item.id === branchId);
+  expect(branch?.parent_conversation_id).toBe(originalId);
+  expect(branch?.forked_from_message_id).toBe(secondUser?.id);
+  expect(branch?.fork_reason).toBe('edit_retry');
+});
+
+test('failed Regenerate discards the pending branch and leaves the source selected', async ({ page, request }) => {
+  const originalId = await newChat(page, request, '再生成失敗');
+  await send(page, 'この返答は残して');
+  await expect(page.getByTestId('message')).toHaveCount(2);
+  const beforeConversations = await (await request.get('/conversations?limit=500', { headers })).json() as { id: string }[];
+
+  await page.getByLabel('モデル', { exact: true }).selectOption('offline');
+  await page.locator('.message.assistant').getByRole('button', { name: '再生成', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('元の会話は変更されていません');
+  expect(new URL(page.url()).searchParams.get('conversation')).toBe(originalId);
+  await expect(page.getByTestId('message')).toHaveCount(2);
+
+  const afterConversations = await (await request.get('/conversations?limit=500', { headers })).json() as { id: string }[];
+  expect(afterConversations.map(item => item.id)).toEqual(beforeConversations.map(item => item.id));
+  expect(await stored(request, originalId)).toHaveLength(2);
+});
