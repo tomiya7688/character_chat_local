@@ -19,6 +19,7 @@ python -m uvicorn character_chat_local.api:app --host 127.0.0.1 --port 8765 --wo
 `http://127.0.0.1:8765/ui/` を開く。Ollama daemonとモデルは別途必要。
 画面の「追加」でキャラクターを作成するか、`examples/characters/mika.json` を読み込み、保存する。
 モデルを選び「新しい会話」から開始する。モデル一覧に出ないIDは「IDを直接指定」で入力できる。
+品質モードは会話上部で Conversation override を選べる。「継承」はCharacter設定、さらに未指定ならGlobal設定を使う。Character設定画面でもFast/Balanced/Strictを指定できる。
 
 build先は `src/character_chat_local/webui/`。このディレクトリは生成物としてGitから除外する。
 `python -m pip wheel . --no-deps --wheel-dir dist` でbuild済みassetsを含むwheelを作れる。
@@ -75,7 +76,7 @@ npm run test:e2e
 
 ブラウザテストは `tools/webui_e2e_server.py` を自動起動する。localhost:8766を空けておく。
 使うのは一時DBと決定的Providerで、実Ollama/外部APIやユーザーの保存済みDBには接続しない。
-期待出力、draft streaming、Stop非保存、Regenerate、Edit & Retry、branch失敗時の元履歴保持、品質拒否/修正、model切替、reload、IME、重複submit、2,000メッセージのwindow、認証、Markdown、mobile、要約出典を確認する。
+期待出力、draft streaming、Stop非保存、Regenerate、Edit & Retry、branch失敗時の元履歴保持、Fast/Balanced/Strictの会話override永続化、品質拒否/修正、model切替、reload、IME、重複submit、2,000メッセージのwindow、認証、Markdown、mobile、要約出典を確認する。
 CIのfrontend jobでも同じ操作を実行し、JUnit / HTML report / screenshotと、WebUI同梱wheelをartifactに保存する。
 成功ログ全文ではなく結果を確認し、失敗時だけ対象trace/差分を見る。
 
