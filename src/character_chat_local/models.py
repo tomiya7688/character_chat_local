@@ -118,12 +118,19 @@ class StoredMessage(ChatMessage):
     position: int
     provider: str | None = None
     model: str | None = None
+    generation_id: str | None = None
+    origin_message_id: str | None = None
 
 
 class ConversationInfo(BaseModel):
     id: str
     character_id: str
     revision: int = 0
+    parent_conversation_id: str | None = None
+    forked_from_message_id: str | None = None
+    supersedes_message_id: str | None = None
+    fork_reason: Literal["regenerate", "edit_retry"] | None = None
+    pending: bool = False
 
 
 class GenerationRun(BaseModel):
@@ -133,6 +140,7 @@ class GenerationRun(BaseModel):
     provider: str
     model: str
     error_code: str | None = None
+    superseded_by_generation_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
