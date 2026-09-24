@@ -281,9 +281,18 @@ class ChatService:
                 )
                 hits = list(primary.hits)
 
+                secondary_probe = None
+                probe_signal = False
+                if quality_mode == "balanced":
+                    secondary_probe = self.recall.recall(
+                        draft,
+                        memories,
+                        exclude_ids=recalled_ids,
+                    )
+                    probe_signal = bool(secondary_probe.hits)
                 inspect = quality_mode == "strict" or (
                     quality_mode == "balanced"
-                    and lightweight.requires_inspection
+                    and (lightweight.requires_inspection or probe_signal)
                 )
                 if quality_mode == "fast":
                     self._record(
@@ -305,16 +314,23 @@ class ChatService:
                         reason="fast_mode_uses_lightweight_gate",
                     )
                 elif inspect:
+                    analysis_signals = list(lightweight.inspect_signals)
+                    if probe_signal:
+                        analysis_signals.append("secondary_recall_probe")
                     self._record(
                         trace,
                         "draft_analysis",
-                        inspect_signals=lightweight.inspect_signals,
+                        inspect_signals=analysis_signals,
                         forced=quality_mode == "strict",
                     )
-                    secondary = self.recall.recall(
-                        draft,
-                        memories,
-                        exclude_ids=recalled_ids,
+                    secondary = (
+                        secondary_probe
+                        if secondary_probe is not None
+                        else self.recall.recall(
+                            draft,
+                            memories,
+                            exclude_ids=recalled_ids,
+                        )
                     )
                     self._record(
                         trace,
