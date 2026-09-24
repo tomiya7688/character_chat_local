@@ -347,6 +347,9 @@ def create_app(
             finish_generation(generation.id, "completed")
             return public_chat_result(conversation_id, payload, result)
         finally:
+            persisted = storage().get_generation(generation.id)
+            if persisted.status == "generating":
+                finish_generation(generation.id, "failed", "internal_error")
             current = app.state.active.get(conversation_id)
             if current is session:
                 app.state.active.pop(conversation_id, None)
