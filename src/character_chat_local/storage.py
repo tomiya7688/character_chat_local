@@ -274,7 +274,9 @@ class Storage:
                 (conversation_id, target["position"]),
             ).fetchone()
             if not previous or previous["role"] != "user":
-                raise ValueError("assistant message must directly follow a user message")
+                raise ValueError(
+                    "assistant message must directly follow a user message"
+                )
             branch = self._create_pending_branch(
                 db,
                 source=source,
@@ -335,7 +337,9 @@ class Storage:
                 "DELETE FROM conversation_summaries WHERE conversation_id=?",
                 (conversation_id,),
             )
-            db.execute("DELETE FROM messages WHERE conversation_id=?", (conversation_id,))
+            db.execute(
+                "DELETE FROM messages WHERE conversation_id=?", (conversation_id,)
+            )
             db.execute("DELETE FROM conversations WHERE id=?", (conversation_id,))
 
     @staticmethod
