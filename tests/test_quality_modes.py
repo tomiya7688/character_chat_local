@@ -197,3 +197,39 @@ async def test_balanced_recall_probe_preserves_lexical_memory_matches(tmp_path):
     assert len(provider.calls) == 2
     analysis = step(result.trace, "draft_analysis")[0]
     assert "secondary_recall_probe" in analysis.details["inspect_signals"]
+
+
+async def test_turn_trace_includes_structured_input_and_context_debug(tmp_path):
+    storage = Storage(tmp_path / "trace-context.db")
+    character = CharacterCore(
+        name="ミカ",
+        lore=["海辺の町"],
+        relationship=["幼なじみ"],
+    )
+    provider = ScriptedProvider(["明日の東京駅の話、覚えておくね。"])
+    result = await ChatService(storage).run(
+        provider=provider,
+        model="small",
+        character=character,
+        user_input="明日、東京駅の話を覚えておいて？",
+    )
+
+    analysis_step = step(result.trace, "input_analysis")[0]
+    assert analysis_step.details["explicit_memory_request"] is True
+    assert "明日" in analysis_step.details["time_references"]
+    assert "東京駅" in analysis_step.details["places"]
+
+    context_step = step(result.trace, "context_build")[0]
+    debug = context_step.details["debug"]
+    assert debug["order"] == [
+        "runtime_rules",
+        "character_core",
+        "critical_lore",
+        "relationship_state",
+        "current_state",
+        "relevant_memories",
+        "recent_conversation",
+        "user_message",
+    ]
+    assert debug["estimated_tokens"] <= debug["max_tokens"]
+    assert debug["used_bytes"] <= debug["max_bytes"]
