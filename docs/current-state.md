@@ -1,6 +1,6 @@
 # Current State
 
-対象: `feat/turn-quality-modes`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
+対象: `feat/input-analysis-context-budget`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
 
 ## Implemented
 - React / Vite / TypeScript strictのWebUI。キャラクター定義JSONの読込/編集、モデル選択/直接指定、会話開始/再開、品質合格後の表示、Markdown/code、出典付き要約の確認。
@@ -15,6 +15,12 @@
 - FastAPI: Character作成/取得/更新、会話作成/一覧、履歴ページ取得、Memory登録/取得、Provider/model一覧、チャット、要約取得。
 - Character Coreの全設定をプロンプトへ注入。履歴はサーバーのSQLiteを原本とする。
 - 1ターンを Input Analysis -> Primary Recall -> Context Build -> Draft Generation -> Lightweight Check -> mode別inspect -> Finalize -> post-final hooks -> Evaluation Log の明示stepとして実行し、Turn Traceに結果を保持する。
+- Input AnalysisはLLMなしのheuristic-v2で topic / entity / person / place / emotion / intent / time reference / explicit memory requestを構造化し、Turn Traceへ保存する。
+- Context Buildは Runtime rules -> Character Core -> Critical Lore -> Relationship State -> Current State -> Relevant Memories -> Recent Conversation -> User Message の順序をコードで固定する。
+- MemoryはContext内で FACT / INFERRED / STATE / RELATIONSHIP にラベル分けする。conversation extractは CONVERSATION として分離し、確定FACTへ昇格しない。
+- generic推定token上限（既定8,000）とUTF-8 byte上限（既定24,000）の両方を満たす。optional sectionは Relationship 20% / State 15% / Relevant Memory 30% / Recent Conversation 35% を基準に未使用budgetを後段へ繰り越す。
+- 固定Character Core / Character Lore / 固定Relationship / 現在入力は黙って切り捨てず、収まらない場合はContextBudgetError。optional memory/historyはwhole record/message group単位で除外する。
+- Context Debugはsectionごとのbudget、used tokens、selected/dropped件数、labelと最終token/byte使用量を保持し、Turn Traceのcontext_build stepから確認できる。
 - Quality modeは Conversation > Character > Global の順でoverrideする。Global既定は Balanced。
 - FastはPrimary Recall + 1回生成 + Lightweight Checkのみ。Balancedはinspect signal時だけDraft Analysis / Secondary Recall / Guardianを実行。Strictは常時Draft Analysis / Secondary Recall / Guardianを実行し、最後にFinal Guardianを再実行する。
 - Secondary Recallによる再生成は最大1回、品質修正も最大1回。Fastは追加生成を行わないため1回で終了する。
@@ -33,7 +39,7 @@
 - 実Ollama / cloud APIへの接続確認と、実モデルで1,000往復した品質・安定性。
 - 小型モデルの実品質評価、LLMによる意味的な要約・Memory/State自動抽出、vector検索。
 - #97 Knowledge Extraction と #98 State/Relationship candidate commit の実処理。orchestrator上のpost-final stepは現時点では明示的な skipped hook。
-- 厳密なモデル別tokenizer、context window検出、出力予約込みのモデル別budget調整。
+- 厳密なモデル別tokenizer、context window自動検出、出力予約込みのモデル別budget調整。現在の8,000 tokenはprovider-neutralな推定値。
 - 一般的な設定矛盾・関係性変化・幻覚の完全な検出。forbiddenは現状、文字列一致として扱う。
 - SSEは未採用（現状はPOST + NDJSON stream）。OS credential store、学習データexportは未実装。
 
@@ -41,6 +47,7 @@
 抽出型要約は全文の意味を完全に保持しない。新しい重要発言により古い抜粋が外れることがある。
 `covered_messages` は処理済み件数であり、その全内容を要約内に保持しているという意味ではない。
 全文はSQLiteへ残るが、要約から外れた任意の過去発言を自動検索する仕組みは未実装。
+Input Analysisは形態素解析/NERモデルではなく軽量heuristicであり、固有名詞・意図・感情抽出の完全性を保証しない。
 従来の `POST /chat` は検証完了までbufferする。WebUIは `POST /chat/stream` の初回draftを未確定previewとして表示するが、Finalだけを保存済み会話として扱う。
 Regenerate / Edit & Retry は会話履歴を破壊的に巻き戻さずbranchを作る。branch作成時はprefixを複製するため、branch数に応じてSQLite上の履歴容量は増える。
 この機能追加前の既存assistant messageには `generation_id` がないため、branch自体は作れるが過去generationを遡って `superseded` に結び付けることはできない。
