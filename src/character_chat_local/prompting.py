@@ -232,9 +232,7 @@ def build_context(
     conversation_extracts: list[dict] = []
 
     # Recalled Canon is the highest-priority optional memory and stays in Critical Lore.
-    recalled_canon = [
-        hit for hit in recalled if hit.memory.type == "canon"
-    ]
+    recalled_canon = [hit for hit in recalled if hit.memory.type == "canon"]
     dynamic_relationship = _sort_memories(
         memory for memory in all_memories if memory.type == "relationship"
     )
@@ -277,12 +275,15 @@ def build_context(
     for name in CONTEXT_ORDER:
         debug_map[name] = ContextSectionDebug(
             name=name,
-            budget_tokens=max_prompt_tokens if name in {
+            budget_tokens=max_prompt_tokens
+            if name
+            in {
                 "runtime_rules",
                 "character_core",
                 "critical_lore",
                 "user_message",
-            } else 0,
+            }
+            else 0,
         )
     debug_map["runtime_rules"].used_tokens = _item_tokens(_runtime_rules(repair))
     debug_map["runtime_rules"].selected_items = len(_runtime_rules(repair))
@@ -290,7 +291,9 @@ def build_context(
     debug_map["character_core"].used_tokens = _item_tokens(_character_core(character))
     debug_map["character_core"].selected_items = 1
     debug_map["character_core"].labels = ["CORE"]
-    debug_map["critical_lore"].used_tokens = sum(_item_tokens(item) for item in critical_lore)
+    debug_map["critical_lore"].used_tokens = sum(
+        _item_tokens(item) for item in critical_lore
+    )
     debug_map["critical_lore"].selected_items = len(critical_lore)
     debug_map["critical_lore"].labels = ["FACT"] if critical_lore else []
     debug_map["relationship_state"].used_tokens = sum(
@@ -374,8 +377,7 @@ def build_context(
     )
 
     state_candidates = [
-        _memory_item(memory, recalled_by_id.get(memory.id))
-        for memory in dynamic_state
+        _memory_item(memory, recalled_by_id.get(memory.id)) for memory in dynamic_state
     ]
     admit_items("current_state", state_candidates, current_state)
 
