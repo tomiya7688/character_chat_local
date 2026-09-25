@@ -15,7 +15,6 @@ from .models import (
     ConversationSummary,
     MemoryRecord,
     RecallHit,
-    StoredMessage,
 )
 
 DEFAULT_PROMPT_BYTES = 24_000
@@ -397,7 +396,7 @@ def build_context(
         selected_entries: list[dict] = []
         for entry in ranked_entries:
             item = {
-                "label": "FACT" if entry.role == "user" else "CONVERSATION",
+                "label": "CONVERSATION",
                 "source_type": "conversation_extract",
                 "source_message_id": entry.source_message_id,
                 "role": entry.role,
@@ -427,7 +426,7 @@ def build_context(
             )
         )
         if selected_entries:
-            recent_debug.labels.extend(["FACT", "CONVERSATION"])
+            recent_debug.labels.append("CONVERSATION")
 
     for group in _history_groups(history):
         cost = prompt_tokens(group)
@@ -443,7 +442,10 @@ def build_context(
         recent_debug.used_tokens += cost
         recent_debug.selected_items += len(group)
     while selected_history and selected_history[0].role == "assistant":
-        selected_history.pop(0)
+        removed = selected_history.pop(0)
+        recent_debug.used_tokens = max(
+            0, recent_debug.used_tokens - prompt_tokens([removed])
+        )
         recent_debug.dropped_items += 1
         recent_debug.selected_items = max(0, recent_debug.selected_items - 1)
     if selected_history and "CONVERSATION" not in recent_debug.labels:
@@ -480,6 +482,7 @@ def build_system_prompt(
         user_input="_",
         recalled=recalled,
         summary=summary,
+        memories=[hit.memory for hit in recalled],
         repair=repair,
         max_prompt_bytes=10_000_000,
         max_prompt_tokens=10_000_000,
