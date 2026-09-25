@@ -92,13 +92,10 @@ def test_context_order_and_memory_labels_are_explicit():
     assert [section["name"] for section in payload["context_sections"]] == list(
         CONTEXT_ORDER[:-1]
     )
-    assert result.messages[-1] == ChatMessage(
-        role="user", content="灯台の話をしよう"
-    )
+    assert result.messages[-1] == ChatMessage(role="user", content="灯台の話をしよう")
 
     sections = {
-        section["name"]: section["items"]
-        for section in payload["context_sections"]
+        section["name"]: section["items"] for section in payload["context_sections"]
     }
     assert any(
         item.get("source_type") == "character_lore" and item["label"] == "FACT"
@@ -145,7 +142,9 @@ def test_context_budget_drops_optional_whole_records_and_reports_debug():
         )
         for index in range(8)
     ]
-    recalled = [hit(memory, 1.0 - index * 0.01) for index, memory in enumerate(memories)]
+    recalled = [
+        hit(memory, 1.0 - index * 0.01) for index, memory in enumerate(memories)
+    ]
     history = [
         ChatMessage(role=role, content=f"history-{index}-" + ("会話" * 30))
         for index in range(8)
