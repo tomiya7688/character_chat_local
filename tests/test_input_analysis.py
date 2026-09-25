@@ -3,7 +3,7 @@ from character_chat_local.analysis import InputAnalyzer
 
 def test_input_analysis_extracts_required_dimensions_without_llm():
     result = InputAnalyzer().analyze(
-        '明日、東京駅で田中さんと「OpenAI」について話そう。少し不安。これ覚えておいて？'
+        "明日、東京駅で田中さんと「OpenAI」について話そう。少し不安。これ覚えておいて？"
     )
 
     assert "OpenAI" in result.topics
