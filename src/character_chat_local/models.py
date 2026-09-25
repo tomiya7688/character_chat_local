@@ -24,6 +24,16 @@ RecallMode = Literal["explicit", "implicit", "behavioral", "emotional", "interna
 GenerationStatus = Literal["generating", "completed", "stopped", "failed", "superseded"]
 QualityMode = Literal["fast", "balanced", "strict"]
 TurnStepStatus = Literal["completed", "skipped"]
+ContextSectionName = Literal[
+    "runtime_rules",
+    "character_core",
+    "critical_lore",
+    "relationship_state",
+    "current_state",
+    "relevant_memories",
+    "recent_conversation",
+    "user_message",
+]
 
 
 class ChatMessage(BaseModel):
@@ -82,6 +92,41 @@ class RecallHit(BaseModel):
 class RecallBundle(BaseModel):
     hits: list[RecallHit] = Field(default_factory=list)
     approx_tokens: int = 0
+
+
+class InputAnalysisResult(BaseModel):
+    strategy: Literal["heuristic-v2"] = "heuristic-v2"
+    topics: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    emotions: list[str] = Field(default_factory=list)
+    intents: list[str] = Field(default_factory=list)
+    time_references: list[str] = Field(default_factory=list)
+    explicit_memory_request: bool = False
+
+
+class ContextSectionDebug(BaseModel):
+    name: ContextSectionName
+    budget_tokens: int
+    used_tokens: int = 0
+    selected_items: int = 0
+    dropped_items: int = 0
+    labels: list[str] = Field(default_factory=list)
+
+
+class ContextDebug(BaseModel):
+    order: list[ContextSectionName]
+    max_tokens: int
+    estimated_tokens: int
+    max_bytes: int
+    used_bytes: int
+    sections: list[ContextSectionDebug] = Field(default_factory=list)
+
+
+class ContextBuildResult(BaseModel):
+    messages: list[ChatMessage]
+    debug: ContextDebug
 
 
 GuardianCategory = Literal[
