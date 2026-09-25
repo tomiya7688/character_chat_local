@@ -213,7 +213,9 @@ def build_context(
         raise ContextBudgetError("context budgets must be positive")
 
     user = ChatMessage(role="user", content=user_input)
-    all_memories = memories or []
+    all_memories = list(memories) if memories is not None else [
+        hit.memory for hit in recalled
+    ]
     recalled_by_id = {hit.memory.id: hit for hit in recalled}
 
     # Fixed Character Core lore/relationship is authoritative and never silently dropped.
