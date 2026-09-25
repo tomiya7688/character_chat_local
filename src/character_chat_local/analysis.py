@@ -9,7 +9,9 @@ _QUOTED_RE = re.compile(
     r"「([^」]{1,40})」|『([^』]{1,40})』|\"([^\"\n]{1,40})\"|'([^'\n]{1,40})'"
 )
 _HASHTAG_RE = re.compile(r"(?<!\w)[#@]([A-Za-z0-9_\-]{2,40})")
-_LATIN_ENTITY_RE = re.compile(r"\b(?:[A-Z][A-Za-z0-9_\-]{1,30})(?:\s+[A-Z][A-Za-z0-9_\-]{1,30})*\b")
+_LATIN_ENTITY_RE = re.compile(
+    r"\b(?:[A-Z][A-Za-z0-9_\-]{1,30})(?:\s+[A-Z][A-Za-z0-9_\-]{1,30})*\b"
+)
 _PERSON_RE = re.compile(
     r"([一-龠々ぁ-んァ-ヶA-Za-z][一-龠々ぁ-んァ-ヶA-Za-z0-9_]{0,20})"
     r"(さん|ちゃん|くん|君|様|先生|先輩)"
@@ -28,7 +30,16 @@ _TIME_RE = re.compile(
 )
 
 _EMOTION_LEXICON: dict[str, tuple[str, ...]] = {
-    "joy": ("嬉しい", "楽しい", "幸せ", "うれしい", "たのしい", "happy", "glad", "excited"),
+    "joy": (
+        "嬉しい",
+        "楽しい",
+        "幸せ",
+        "うれしい",
+        "たのしい",
+        "happy",
+        "glad",
+        "excited",
+    ),
     "sadness": ("悲しい", "寂しい", "つらい", "かなしい", "sad", "lonely"),
     "anger": ("怒り", "怒って", "腹が立", "むかつ", "angry", "mad"),
     "fear": ("怖い", "こわい", "恐い", "fear", "scared", "afraid"),
@@ -131,19 +142,22 @@ class InputAnalyzer:
             quoted.extend(group for group in match.groups() if group)
 
         known_entity_hits = [
-            value for value in known_entities if value.strip() and value.casefold() in folded
+            value
+            for value in known_entities
+            if value.strip() and value.casefold() in folded
         ]
         known_people_hits = [
-            value for value in known_people if value.strip() and value.casefold() in folded
+            value
+            for value in known_people
+            if value.strip() and value.casefold() in folded
         ]
         known_place_hits = [
-            value for value in known_places if value.strip() and value.casefold() in folded
+            value
+            for value in known_places
+            if value.strip() and value.casefold() in folded
         ]
 
-        people = [
-            _suffix_value(match.group(1))
-            for match in _PERSON_RE.finditer(text)
-        ]
+        people = [_suffix_value(match.group(1)) for match in _PERSON_RE.finditer(text)]
         people.extend(known_people_hits)
 
         places = [
@@ -171,7 +185,11 @@ class InputAnalyzer:
         intents: list[str] = []
         if explicit_memory_request:
             intents.append("memory_request")
-        if "?" in text or "？" in text or re.search(r"(ですか|ますか|かな|か)$", text.strip()):
+        if (
+            "?" in text
+            or "？" in text
+            or re.search(r"(ですか|ますか|かな|か)$", text.strip())
+        ):
             intents.append("question")
         if any(marker.casefold() in folded for marker in _REQUEST_MARKERS):
             intents.append("request")
