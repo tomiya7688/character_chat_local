@@ -13,10 +13,10 @@ from .models import (
     ChatMessage,
     ConversationInfo,
     ConversationSummary,
-    GenerationRun,
-    GenerationStatus,
     DynamicStateRecord,
     EpistemicState,
+    GenerationRun,
+    GenerationStatus,
     GuardianResult,
     KnowledgeExtractionRecord,
     KnowledgeExtractionResult,
@@ -749,9 +749,7 @@ class Storage:
             for row in latest.values()
         ]
 
-    def dynamic_state_history(
-        self, character_id: str
-    ) -> list[DynamicStateRecord]:
+    def dynamic_state_history(self, character_id: str) -> list[DynamicStateRecord]:
         with self.session() as db:
             rows = db.execute(
                 "SELECT * FROM dynamic_state_history "
@@ -846,7 +844,9 @@ class Storage:
                 (source_message_id,),
             ).fetchone()
             if not source or source["character_id"] != character_id:
-                raise ValueError("relationship source must belong to the same character")
+                raise ValueError(
+                    "relationship source must belong to the same character"
+                )
             db.execute(
                 "INSERT INTO relationship_state_history("
                 "id, change_id, character_id, dimension, score, label, confidence, "
@@ -902,8 +902,7 @@ class Storage:
                     character_id=character_id,
                     type="relationship",
                     content=(
-                        f"{state.dimension}: {state.label} "
-                        f"(score={state.score:+.2f})"
+                        f"{state.dimension}: {state.label} (score={state.score:+.2f})"
                     ),
                     importance=0.8,
                     confidence=state.confidence,
