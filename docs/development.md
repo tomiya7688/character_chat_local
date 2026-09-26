@@ -34,6 +34,9 @@ buffered `/chat` は成功時に最終text、provider/model、Guardian結果、�
 | `PUT /conversations/{id}/quality-mode` | 会話単位のquality mode override。bodyは `{"quality_mode":"fast"|"balanced"|"strict"|null}` |
 | `GET /conversations/{id}/messages?after=0&limit=100` | 昇順の履歴。次ページは最後のpositionをafterへ渡す。`tail=true`は最新、`before=<position>`は直前のページ（どちらも返却順は昇順）。cursorの併用は禁止。limitは最大500 |
 | `GET /conversations/{id}/summary` | 出典付き抽出要約と処理済み件数 |
+| `GET /conversations/{id}/knowledge-extractions` | accepted Final後に生成したstructured Knowledge/State候補とsource message |
+| `GET /characters/{id}/state` | 最新Dynamic State |
+| `GET /characters/{id}/relationship-state` | 最新Relationship State |
 | `GET /characters/{id}/memories`, `POST /characters/{id}/memories` | 構造化Memory。source指定時は同一characterのmessage IDが必要 |
 | `GET /providers`, `GET /providers/{id}/models` | 設定済みProvider / model一覧。credentialは返さない |
 | `POST /conversations/{id}/chat/stream` | NDJSONで初回draft previewと検証状態を配信し、最後に確定Finalを返す |
@@ -49,6 +52,7 @@ buffered `/chat` は成功時に最終text、provider/model、Guardian結果、�
 
 - DB: `CHARACTER_CHAT_DB`（既定 `data/chat.sqlite3`）。起動前に旧DBをバックアップする。migrationは列/テーブルの追加のみ。
 - Global quality mode: `CHARACTER_CHAT_QUALITY_MODE=fast|balanced|strict`。未指定は `balanced`。Character Coreの `quality_mode`、Conversation overrideの順に上書きされる。
+- 任意Knowledge Extractor model: `CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_PROVIDER` と `CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_MODEL` を両方指定。任意で `CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_TEMPERATURE`（既定0.1）。providerは通常のProvider Registryに存在する必要がある。未指定ならdeterministic extractor。
 - Ollama: `OLLAMA_BASE_URL`（既定 `http://127.0.0.1:11434`）。
 - OpenAI: `OPENAI_API_KEY`, 任意の `OPENAI_BASE_URL`（API root、`/v1`を含めない）。
 - xAI: `XAI_API_KEY`, 任意の `XAI_BASE_URL`（API root）。Gemini: `GEMINI_API_KEY`。
@@ -66,7 +70,10 @@ Quality mode:
 - Strict: 常にDraft Analysis -> Secondary Recall -> Guardianを通し、最後にFinal Guardianを再実行。生成回数上限はBalancedと同じ。
 - override優先順位は Conversation > Character > Global。
 
-Turn Traceには各stepのstatusと小さい診断情報を保持する。Input Analysis結果とContext Debugもここへ記録する。Knowledge Extraction (#97) と State Update (#98) は順序だけ予約し、現時点では `skipped` と記録する。
+Turn Traceには各stepのstatusと小さい診断情報を保持する。Input Analysis結果とContext Debugもここへ記録する。accepted persisted turnではKnowledge ExtractionとState Updateのcandidate/commit件数も記録する。
+
+Knowledge ExtractionはDraftを使わず、User Message + accepted Final Assistant Messageのみを解析する。long-term候補とCurrent State/Relationship候補を分離し、source roleとconfirmed/inferred/hypothesisを保持する。model structured outputのparse/provider失敗時はdeterministic fallback。
+State commit ruleはhypothesisを拒否し、owner/source整合性とconfidenceを確認する。Relationship score deltaは急変防止のためturn単位でclampする。long-term Knowledge候補はまだcandidate auditであり、自動Memory昇格しない。
 
 Context orderは次で固定:
 1. Runtime rules
@@ -90,6 +97,7 @@ total generation timeoutは既定300秒、各出力は最大8,000文字。
 
 ```bash
 python -m pytest -q tests/test_input_analysis.py tests/test_context_builder.py tests/test_quality_modes.py
+python -m pytest -q tests/test_knowledge_pipeline.py
 python -m pytest -q tests/test_api.py tests/test_runtime.py
 python -m pytest -q tests/test_summary.py tests/test_long_turn.py
 python -m pytest -q
