@@ -75,9 +75,7 @@ class StateCandidateCommitter:
                 and abs(next_score - current.score) < 1e-9
                 and current.label.casefold() == candidate.label.casefold()
             ):
-                result.rejected.append(
-                    f"duplicate_relationship:{candidate.dimension}"
-                )
+                result.rejected.append(f"duplicate_relationship:{candidate.dimension}")
                 continue
             record = self.storage.append_relationship_state(
                 character_id=character_id,
