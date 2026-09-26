@@ -272,6 +272,21 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
 
+    @app.get("/conversations/{conversation_id}/knowledge-extractions")
+    def knowledge_extractions(conversation_id: str):
+        conversation_or_404(conversation_id)
+        return storage().list_knowledge_extractions(conversation_id)
+
+    @app.get("/characters/{character_id}/state")
+    def current_state(character_id: str):
+        character_or_404(character_id)
+        return storage().latest_dynamic_states(character_id)
+
+    @app.get("/characters/{character_id}/relationship-state")
+    def relationship_state(character_id: str):
+        character_or_404(character_id)
+        return storage().latest_relationship_states(character_id)
+
     @app.get("/conversations/{conversation_id}/summary")
     def get_summary(conversation_id: str):
         conversation_or_404(conversation_id)
