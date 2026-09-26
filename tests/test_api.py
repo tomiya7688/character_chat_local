@@ -243,3 +243,46 @@ def test_explicit_dev_origin_and_token_preflight(tmp_path):
         assert (
             response.headers["Access-Control-Allow-Origin"] == "http://localhost:5173"
         )
+
+
+def test_quality_mode_overrides_are_persisted_and_reported(client, provider):
+    character = client.post(
+        "/characters",
+        json={"name": "Mode", "quality_mode": "strict"},
+    ).json()
+    conversation = client.post(
+        "/conversations", json={"character_id": character["id"]}
+    ).json()["id"]
+
+    inherited = send(client, conversation)
+    assert inherited.status_code == 200
+    assert inherited.json()["quality_mode"] == "strict"
+
+    updated = client.put(
+        f"/conversations/{conversation}/quality-mode",
+        json={"quality_mode": "fast"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["quality_mode"] == "fast"
+    assert send(client, conversation).json()["quality_mode"] == "fast"
+
+    cleared = client.put(
+        f"/conversations/{conversation}/quality-mode",
+        json={"quality_mode": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["quality_mode"] is None
+    assert send(client, conversation).json()["quality_mode"] == "strict"
+
+
+def test_global_quality_mode_is_used_when_no_override(tmp_path, provider):
+    app = create_app(
+        database_path=tmp_path / "mode.db",
+        registry=ProviderRegistry([provider]),
+        default_quality_mode="fast",
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as mode_client:
+        _, conversation = new_conversation(mode_client)
+        response = send(mode_client, conversation)
+        assert response.status_code == 200
+        assert response.json()["quality_mode"] == "fast"

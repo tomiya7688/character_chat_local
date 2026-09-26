@@ -3,7 +3,7 @@ import { ApiClient, errorMessage } from './api';
 import { CharacterEditor } from './CharacterEditor';
 import { ChatPanel } from './ChatPanel';
 import { Settings } from './Settings';
-import type { Character, CharacterInput, Conversation, Model } from './types';
+import type { Character, CharacterInput, Conversation, Model, QualityMode } from './types';
 
 function updateLocation(id: string) {
   const url = new URL(window.location.href);
@@ -74,10 +74,17 @@ export default function App() {
   }, [api, provider, connected, modelRefresh]);
 
   const character = characters.find(item => item.id === characterId);
+  const conversation = conversations.find(item => item.id === conversationId);
   const locked = busy || loading;
   const selectConversation = (chat: Conversation) => {
     setConversationId(chat.id); setCharacterId(chat.character_id); updateLocation(chat.id); setMobileMenu(false); setError('');
   };
+  function selectBranchedConversation(id: string) {
+    setConversationId(id);
+    updateLocation(id);
+    setRefresh(value => value + 1);
+  }
+
   async function startConversation() {
     if (locked || !characterId) return;
     setBusy(true); setError('');
@@ -87,6 +94,19 @@ export default function App() {
     } catch (e) { setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
+  async function setConversationQualityMode(value: string) {
+    if (!conversationId || locked) return;
+    setBusy(true); setError('');
+    try {
+      const saved = await api.setConversationQualityMode(
+        conversationId,
+        (value || null) as QualityMode | null,
+      );
+      setConversations(current => current.map(item => item.id === saved.id ? saved : item));
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); }
+  }
+
   async function saveCharacter(data: CharacterInput, id?: string) {
     const saved = await api.saveCharacter(data, id);
     setCharacters(current => id ? current.map(item => item.id === id ? saved : item) : [...current, saved]);
@@ -112,7 +132,7 @@ export default function App() {
         <div className="section-heading conversations-heading"><h2>これまでの会話</h2><button className="quiet" disabled={locked} onClick={() => setRefresh(value => value + 1)}>一覧更新</button></div>
         <nav className="conversation-list" aria-label="保存した会話">
           {conversations.filter(chat => chat.character_id === characterId).map((chat, index) => <button key={chat.id} className={chat.id === conversationId ? 'selected' : ''} aria-current={chat.id === conversationId ? 'page' : undefined} disabled={locked} onClick={() => selectConversation(chat)}>
-            <span>会話 {chat.id.slice(0, 8)}</span><small>{index === 0 ? '最近の会話' : '保存済み'}</small></button>)}
+            <span>会話 {chat.id.slice(0, 8)}</span><small>{chat.parent_conversation_id ? (chat.fork_reason === 'regenerate' ? '再生成branch' : '編集branch') : index === 0 ? '最近の会話' : '保存済み'}</small></button>)}
           {!conversations.some(chat => chat.character_id === characterId) && <p className="muted">会話はまだありません。</p>}
         </nav>
         <footer className="sidebar-footer">会話はローカルDBに保存します。<br />一覧は最大500件まで表示します。</footer>
@@ -126,13 +146,19 @@ export default function App() {
             : <select aria-label="モデル" value={model} disabled={locked || modelLoading || !connected} onChange={e => setModel(e.target.value)}>
               {!models.length && <option value="">{modelLoading ? 'モデルを読込中…' : 'モデルを選択'}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.display_name || item.id}</option>)}</select>}</label>
           <label className="temperature-field">Temperature<input type="number" min={0} max={2} step={0.1} value={temperature} disabled={locked} onChange={e => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) setTemperature(Math.min(2, Math.max(0, value))); }} /></label>
+          <label className="quality-mode-field">品質モード<select aria-label="会話品質モード" value={conversation?.quality_mode ?? ''} disabled={locked || !conversation} onChange={e => void setConversationQualityMode(e.target.value)}>
+            <option value="">継承</option>
+            <option value="fast">Fast</option>
+            <option value="balanced">Balanced</option>
+            <option value="strict">Strict</option>
+          </select></label>
           <label className="checkbox"><input type="checkbox" checked={manual} disabled={locked} onChange={e => { manualRef.current = e.target.checked; setManual(e.target.checked); setModel(e.target.checked ? model : models[0]?.id ?? ''); }} />IDを直接指定</label>
           <button disabled={locked || modelLoading || !connected} onClick={() => setModelRefresh(value => value + 1)}>モデル更新</button>
         </section>
         {modelError && connected && <p className="model-warning" role="status">{modelError}</p>}
         {error && <p className="error workspace-error" role="alert">{error}</p>}
         {connected && conversationId && character
-          ? <ChatPanel key={`${conversationId}:${refresh}`} api={api} conversationId={conversationId} name={character.name} provider={provider} model={model} temperature={temperature} onBusy={setBusy} />
+          ? <ChatPanel key={`${conversationId}:${refresh}`} api={api} conversationId={conversationId} name={character.name} provider={provider} model={model} temperature={temperature} onBusy={setBusy} onBranchCreated={selectBranchedConversation} />
           : <section className="welcome"><p className="eyebrow">YOUR LOCAL CONVERSATION SPACE</p><h2>{loading ? '会話の準備をしています' : 'ここから、会話をはじめよう。'}</h2><p>キャラクターとモデルを選んで、あなたのペースで。<br />設定も、これまでの会話も、この場所に残ります。</p>
             {!loading && connected && !characters.length && <button className="primary" onClick={() => setEditor('new')}>最初のキャラクターを追加</button>}
             {!loading && connected && character && <button className="primary" disabled={busy} onClick={() => void startConversation()}>会話をはじめる</button>}
