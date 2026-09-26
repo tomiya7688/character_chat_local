@@ -22,6 +22,18 @@ MemoryType = Literal[
 ]
 RecallMode = Literal["explicit", "implicit", "behavioral", "emotional", "internal_only"]
 GenerationStatus = Literal["generating", "completed", "stopped", "failed", "superseded"]
+QualityMode = Literal["fast", "balanced", "strict"]
+TurnStepStatus = Literal["completed", "skipped"]
+ContextSectionName = Literal[
+    "runtime_rules",
+    "character_core",
+    "critical_lore",
+    "relationship_state",
+    "current_state",
+    "relevant_memories",
+    "recent_conversation",
+    "user_message",
+]
 
 
 class ChatMessage(BaseModel):
@@ -51,6 +63,7 @@ class CharacterCore(BaseModel):
     forbidden: list[str] = Field(default_factory=list)
     relationship: list[str] = Field(default_factory=list)
     response_style: list[str] = Field(default_factory=list)
+    quality_mode: QualityMode | None = None
 
 
 class MemoryRecord(BaseModel):
@@ -81,6 +94,41 @@ class RecallBundle(BaseModel):
     approx_tokens: int = 0
 
 
+class InputAnalysisResult(BaseModel):
+    strategy: Literal["heuristic-v2"] = "heuristic-v2"
+    topics: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    emotions: list[str] = Field(default_factory=list)
+    intents: list[str] = Field(default_factory=list)
+    time_references: list[str] = Field(default_factory=list)
+    explicit_memory_request: bool = False
+
+
+class ContextSectionDebug(BaseModel):
+    name: ContextSectionName
+    budget_tokens: int
+    used_tokens: int = 0
+    selected_items: int = 0
+    dropped_items: int = 0
+    labels: list[str] = Field(default_factory=list)
+
+
+class ContextDebug(BaseModel):
+    order: list[ContextSectionName]
+    max_tokens: int
+    estimated_tokens: int
+    max_bytes: int
+    used_bytes: int
+    sections: list[ContextSectionDebug] = Field(default_factory=list)
+
+
+class ContextBuildResult(BaseModel):
+    messages: list[ChatMessage]
+    debug: ContextDebug
+
+
 GuardianCategory = Literal[
     "character_break",
     "lore_violation",
@@ -103,12 +151,32 @@ class GuardianResult(BaseModel):
     findings: list[GuardianFinding] = Field(default_factory=list)
 
 
+class LightweightCheckResult(BaseModel):
+    passed: bool
+    requires_inspection: bool = False
+    findings: list[GuardianFinding] = Field(default_factory=list)
+    inspect_signals: list[str] = Field(default_factory=list)
+
+
+class TurnStepResult(BaseModel):
+    name: str
+    status: TurnStepStatus = "completed"
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class TurnTrace(BaseModel):
+    quality_mode: QualityMode
+    steps: list[TurnStepResult] = Field(default_factory=list)
+
+
 class ChatRunResult(BaseModel):
     text: str
     draft: str
     primary_recall: RecallBundle
     secondary_recall: RecallBundle
     guardian: GuardianResult
+    quality_mode: QualityMode = "balanced"
+    trace: TurnTrace
     regenerated_for_recall: bool = False
     repaired: bool = False
 
@@ -118,12 +186,20 @@ class StoredMessage(ChatMessage):
     position: int
     provider: str | None = None
     model: str | None = None
+    generation_id: str | None = None
+    origin_message_id: str | None = None
 
 
 class ConversationInfo(BaseModel):
     id: str
     character_id: str
     revision: int = 0
+    parent_conversation_id: str | None = None
+    forked_from_message_id: str | None = None
+    supersedes_message_id: str | None = None
+    fork_reason: Literal["regenerate", "edit_retry"] | None = None
+    pending: bool = False
+    quality_mode: QualityMode | None = None
 
 
 class GenerationRun(BaseModel):
@@ -133,6 +209,7 @@ class GenerationRun(BaseModel):
     provider: str
     model: str
     error_code: str | None = None
+    superseded_by_generation_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

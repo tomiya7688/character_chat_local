@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import CharacterCore, MemoryRecord
+from .models import CharacterCore, MemoryRecord, QualityMode
 from .providers import ProviderError, ProviderRegistry
 from .service import ChatService, QualityRejected
 from .storage import ConversationConflict, Storage
@@ -33,12 +33,20 @@ class ConversationCreate(BaseModel):
     character_id: str = Field(min_length=1, max_length=200)
 
 
-class ChatRequest(BaseModel):
+class QualityModeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quality_mode: QualityMode | None = None
+
+
+class RetryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     provider: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)
-    user_input: str = Field(min_length=1, max_length=4000)
     temperature: float = Field(default=0.8, ge=0, le=2)
+
+
+class ChatRequest(RetryRequest):
+    user_input: str = Field(min_length=1, max_length=4000)
 
 
 def create_app(
@@ -48,6 +56,7 @@ def create_app(
     allowed_origins: tuple[str, ...] = (),
     api_token: str | None = None,
     ui_directory: str | Path | None = None,
+    default_quality_mode: QualityMode | None = None,
 ) -> FastAPI:
     """Local-only API. Instantiation/import does not open a database or a provider."""
 
@@ -58,7 +67,18 @@ def create_app(
         app.state.registry = (
             registry if registry is not None else ProviderRegistry.from_env()
         )
-        app.state.service = ChatService(app.state.storage)
+        configured_quality_mode = (
+            default_quality_mode
+            if default_quality_mode is not None
+            else os.getenv("CHARACTER_CHAT_QUALITY_MODE", "balanced").strip().lower()
+        )
+        if configured_quality_mode not in {"fast", "balanced", "strict"}:
+            raise RuntimeError(
+                "CHARACTER_CHAT_QUALITY_MODE must be fast, balanced, or strict"
+            )
+        app.state.service = ChatService(
+            app.state.storage, default_quality_mode=configured_quality_mode
+        )
         app.state.active: dict[str, ActiveGeneration] = {}
         app.state.api_token = (
             api_token
@@ -216,6 +236,17 @@ def create_app(
             storage().create_conversation(payload.character_id)
         )
 
+    @app.put("/conversations/{conversation_id}/quality-mode")
+    def update_conversation_quality_mode(
+        conversation_id: str, payload: QualityModeUpdate
+    ):
+        conversation_or_404(conversation_id)
+        if conversation_id in app.state.active:
+            raise HTTPException(409, "conversation is already generating")
+        return storage().set_conversation_quality_mode(
+            conversation_id, payload.quality_mode
+        )
+
     @app.get("/conversations/{conversation_id}/messages")
     def get_messages(
         conversation_id: str,
@@ -283,6 +314,7 @@ def create_app(
             "conversation_id": conversation_id,
             "provider": payload.provider,
             "model": payload.model,
+            "quality_mode": result.quality_mode,
             "text": result.text,
             "guardian": result.guardian.model_dump(),
             "repaired": result.repaired,
@@ -354,8 +386,12 @@ def create_app(
             if current is session:
                 app.state.active.pop(conversation_id, None)
 
-    @app.post("/conversations/{conversation_id}/chat/stream")
-    async def chat_stream(conversation_id: str, payload: ChatRequest):
+    def stream_chat_response(
+        conversation_id: str,
+        payload: ChatRequest,
+        *,
+        discard_pending_on_failure: bool = False,
+    ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id)
         character = character_or_404(conversation.character_id)
         provider = provider_or_404(payload.provider)
@@ -367,12 +403,25 @@ def create_app(
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
         session = ActiveGeneration(generation.id)
         app.state.active[conversation_id] = session
-        queue.put_nowait({"type": "started", "generation_id": generation.id})
+        queue.put_nowait(
+            {
+                "type": "started",
+                "generation_id": generation.id,
+                "conversation_id": conversation_id,
+            }
+        )
 
         async def emit(event: dict) -> None:
-            await queue.put({"generation_id": generation.id, **event})
+            await queue.put(
+                {
+                    "generation_id": generation.id,
+                    "conversation_id": conversation_id,
+                    **event,
+                }
+            )
 
         async def worker() -> None:
+            completed = False
             try:
                 result = await app.state.service.run(
                     provider=provider,
@@ -390,6 +439,7 @@ def create_app(
                     {
                         "type": "stopped",
                         "generation_id": generation.id,
+                        "conversation_id": conversation_id,
                         "status": "stopped",
                     }
                 )
@@ -399,6 +449,7 @@ def create_app(
                     {
                         "type": "error",
                         "generation_id": generation.id,
+                        "conversation_id": conversation_id,
                         "code": "quality_rejected",
                         "message": "No response passed quality checks.",
                         "evaluation_id": exc.evaluation_id,
@@ -410,6 +461,7 @@ def create_app(
                     {
                         "type": "error",
                         "generation_id": generation.id,
+                        "conversation_id": conversation_id,
                         "code": "invalid_request",
                         "message": "Input or prompt settings are invalid.",
                     }
@@ -420,6 +472,7 @@ def create_app(
                     {
                         "type": "error",
                         "generation_id": generation.id,
+                        "conversation_id": conversation_id,
                         "code": "provider_error",
                         "message": "Provider request failed.",
                     }
@@ -430,16 +483,19 @@ def create_app(
                     {
                         "type": "error",
                         "generation_id": generation.id,
+                        "conversation_id": conversation_id,
                         "code": "conversation_conflict",
                         "message": "Conversation changed during generation.",
                     }
                 )
             else:
+                completed = True
                 finish_generation(generation.id, "completed")
                 queue.put_nowait(
                     {
                         "type": "final",
                         "generation_id": generation.id,
+                        "conversation_id": conversation_id,
                         "result": public_chat_result(conversation_id, payload, result),
                     }
                 )
@@ -451,6 +507,7 @@ def create_app(
                         {
                             "type": "error",
                             "generation_id": generation.id,
+                            "conversation_id": conversation_id,
                             "code": "internal_error",
                             "message": "Generation failed.",
                         }
@@ -458,6 +515,8 @@ def create_app(
                 current = app.state.active.get(conversation_id)
                 if current is session:
                     app.state.active.pop(conversation_id, None)
+                if discard_pending_on_failure and not completed:
+                    storage().discard_pending_branch(conversation_id)
                 queue.put_nowait(None)
 
         session.task = asyncio.create_task(
@@ -481,6 +540,57 @@ def create_app(
             media_type="application/x-ndjson",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/conversations/{conversation_id}/chat/stream")
+    async def chat_stream(conversation_id: str, payload: ChatRequest):
+        return stream_chat_response(conversation_id, payload)
+
+    @app.post(
+        "/conversations/{conversation_id}/messages/{message_id}/regenerate/stream"
+    )
+    async def regenerate_stream(
+        conversation_id: str, message_id: str, payload: RetryRequest
+    ):
+        conversation_or_404(conversation_id)
+        provider_or_404(payload.provider)
+        if conversation_id in app.state.active:
+            raise HTTPException(409, "conversation is already generating")
+        try:
+            branch, user_input = storage().create_regenerate_branch(
+                conversation_id, message_id
+            )
+        except KeyError:
+            raise HTTPException(404, "message not found") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return stream_chat_response(
+            branch.id,
+            ChatRequest(
+                provider=payload.provider,
+                model=payload.model,
+                temperature=payload.temperature,
+                user_input=user_input,
+            ),
+            discard_pending_on_failure=True,
+        )
+
+    @app.post(
+        "/conversations/{conversation_id}/messages/{message_id}/edit-retry/stream"
+    )
+    async def edit_retry_stream(
+        conversation_id: str, message_id: str, payload: ChatRequest
+    ):
+        conversation_or_404(conversation_id)
+        provider_or_404(payload.provider)
+        if conversation_id in app.state.active:
+            raise HTTPException(409, "conversation is already generating")
+        try:
+            branch = storage().create_edit_retry_branch(conversation_id, message_id)
+        except KeyError:
+            raise HTTPException(404, "message not found") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return stream_chat_response(branch.id, payload, discard_pending_on_failure=True)
 
     @app.post(
         "/conversations/{conversation_id}/generations/{generation_id}/stop",
