@@ -66,17 +66,31 @@ Quality mode:
 - Strict: 常にDraft Analysis -> Secondary Recall -> Guardianを通し、最後にFinal Guardianを再実行。生成回数上限はBalancedと同じ。
 - override優先順位は Conversation > Character > Global。
 
-Turn Traceには各stepのstatusと小さい診断情報を保持する。Knowledge Extraction (#97) と State Update (#98) は順序だけ予約し、現時点では `skipped` と記録する。
+Turn Traceには各stepのstatusと小さい診断情報を保持する。Input Analysis結果とContext Debugもここへ記録する。Knowledge Extraction (#97) と State Update (#98) は順序だけ予約し、現時点では `skipped` と記録する。
+
+Context orderは次で固定:
+1. Runtime rules
+2. Character Core
+3. Critical Lore
+4. Relationship State
+5. Current State
+6. Relevant Memories
+7. Recent Conversation
+8. User Message
+
+Memory contextは FACT / INFERRED / STATE / RELATIONSHIP に分類する。会話抜粋は CONVERSATION でありFACTではない。
+optional token配分の初期比率は Relationship 20% / State 15% / Relevant Memories 30% / Recent Conversation 35%。前段の未使用分は後段へ繰り越す。
+`ChatService(max_prompt_tokens=...)` の既定は8,000推定token、`max_prompt_bytes` は24,000 UTF-8 bytes。両方の上限を満たす必要がある。token数はprovider-neutralなheuristicで、モデル固有tokenizerの厳密値ではない。
+固定Character Core / Critical Lore / 固定Relationship / 現在入力は黙って切り捨てない。optional Memoryや履歴はレコード/turn単位で落とし、selected/dropped件数をContext Debugに残す。
 
 total generation timeoutは既定300秒、各出力は最大8,000文字。
-`ChatService(max_prompt_bytes=...)` はUTF-8 bytesとmessage overheadによる上限（既定24,000）であり、モデル固有のtoken数保証ではない。
-小さいcontext windowのmodelには予算調整が必要。固定設定や現在入力を黙って切り捨てず、収まらなければエラーとする。
 抽出型要約の精度と実LLMの会話品質は別途評価する。詳細は `current-state.md`。
 
 ## Validation
 
 ```bash
-python -m pytest -q tests/test_api.py tests/test_runtime.py tests/test_quality_modes.py
+python -m pytest -q tests/test_input_analysis.py tests/test_context_builder.py tests/test_quality_modes.py
+python -m pytest -q tests/test_api.py tests/test_runtime.py
 python -m pytest -q tests/test_summary.py tests/test_long_turn.py
 python -m pytest -q
 python -m ruff check .

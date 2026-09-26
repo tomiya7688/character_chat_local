@@ -2,7 +2,9 @@
 
 | 変更 | 主なsource | 最初のtests |
 |---|---|---|
-| Character / prompt budget | `models.py`, `prompting.py` | `tests/test_runtime.py` |
+| Input Analysis | `analysis.py`, `models.py`, `service.py` | `tests/test_input_analysis.py`, `tests/test_quality_modes.py` |
+| Context order / prompt budget / debug | `prompting.py`, `models.py`, `service.py` | `tests/test_context_builder.py`, `tests/test_runtime.py`, `tests/test_long_turn.py` |
+| Character / prompt budget | `models.py`, `prompting.py` | `tests/test_context_builder.py`, `tests/test_runtime.py` |
 | Recall / Guardian | `recall.py`, `guardian.py` | `tests/test_recall.py`, `tests/test_guardian.py`, `tests/test_runtime.py` |
 | rolling summary | `summary.py`, `models.py` | `tests/test_summary.py`, `tests/test_long_turn.py` |
 | SQLite / migration / atomicity | `storage.py` | `tests/test_storage.py`, `tests/test_runtime.py`, `tests/test_long_turn.py` |

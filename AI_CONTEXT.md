@@ -20,6 +20,9 @@
 
 ## Invariants
 - Character Core / Canonを会話要約や推測で上書きしない。
+- Context orderは Runtime rules -> Character Core -> Critical Lore -> Relationship State -> Current State -> Relevant Memories -> Recent Conversation -> User Message で固定する。
+- Context内では FACT / INFERRED / STATE / RELATIONSHIP を明示的に区別する。会話要約は CONVERSATION でありFACTへ昇格しない。
+- 固定Character Core / Critical Lore / 現在入力は黙って切り捨てない。optional contextはwhole record単位でbudgetへ収め、選択/除外はContext Debugへ残す。
 - 要約は会話単位。Memoryのsourceは同一characterに所属する。
 - buffered `/chat` は不合格draftを返さない。`/chat/stream` の初回draft previewは未確定と明示し、保存・Memory/State更新の正本にしない。Finalだけを確定会話へcommitする。
 - Quality modeの優先順位は Conversation > Character > Global。Global既定は Balanced。

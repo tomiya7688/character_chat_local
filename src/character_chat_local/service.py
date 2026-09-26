@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from .analysis import InputAnalyzer
 from .guardian import Guardian
 from .models import (
     CharacterCore,
@@ -19,7 +20,11 @@ from .models import (
     TurnStepResult,
     TurnTrace,
 )
-from .prompting import DEFAULT_PROMPT_BYTES, build_messages, prompt_size
+from .prompting import (
+    DEFAULT_PROMPT_BYTES,
+    DEFAULT_PROMPT_TOKENS,
+    build_context,
+)
 from .providers import AIProvider, ProviderError
 from .quality import LightweightDraftChecker
 from .recall import RecallEngine
@@ -85,17 +90,20 @@ class ChatService:
         storage: Storage,
         *,
         max_prompt_bytes: int = DEFAULT_PROMPT_BYTES,
+        max_prompt_tokens: int = DEFAULT_PROMPT_TOKENS,
         timeout: float = 300.0,
         default_quality_mode: QualityMode = "balanced",
     ):
         if default_quality_mode not in {"fast", "balanced", "strict"}:
             raise ValueError("invalid default quality mode")
         self.storage = storage
+        self.analyzer = InputAnalyzer()
         self.recall = RecallEngine()
         self.guardian = Guardian()
         self.lightweight = LightweightDraftChecker()
         self.summary = SummaryEngine()
         self.max_prompt_bytes = max_prompt_bytes
+        self.max_prompt_tokens = max_prompt_tokens
         self.timeout = timeout
         self.default_quality_mode = default_quality_mode
 
@@ -119,26 +127,6 @@ class ChatService:
         **details: Any,
     ) -> None:
         trace.steps.append(TurnStepResult(name=name, status=status, details=details))
-
-    @staticmethod
-    def _input_analysis(user_input: str) -> dict[str, Any]:
-        folded = user_input.casefold()
-        explicit_memory = any(
-            marker in folded
-            for marker in (
-                "覚えて",
-                "忘れないで",
-                "remember",
-                "don't forget",
-                "do not forget",
-            )
-        )
-        return {
-            "strategy": "heuristic-fallback-v1",
-            "characters": len(user_input),
-            "explicit_memory_request": explicit_memory,
-            "question": "?" in user_input or "？" in user_input,
-        }
 
     async def run(
         self,
@@ -176,9 +164,21 @@ class ChatService:
 
         quality_mode = self.resolve_quality_mode(character, conversation)
         trace = TurnTrace(quality_mode=quality_mode)
-        self._record(trace, "input_analysis", **self._input_analysis(user_input))
 
         memories = self.storage.list_memories(character.id)
+        known_entities = [
+            entity
+            for memory in memories
+            for entity in memory.entities
+            if entity.strip()
+        ]
+        analysis = self.analyzer.analyze(
+            user_input,
+            known_entities=known_entities,
+            known_people=[character.name],
+        )
+        self._record(trace, "input_analysis", **analysis.model_dump())
+
         primary = self.recall.recall(user_input, memories)
         self._record(
             trace,
@@ -200,22 +200,24 @@ class ChatService:
             purpose: str,
             repair: str | None = None,
         ) -> str:
-            messages = build_messages(
+            context = build_context(
                 character=character,
                 history=history,
                 user_input=user_input,
                 recalled=hits,
                 summary=summary,
+                memories=memories,
                 repair=repair,
                 max_prompt_bytes=self.max_prompt_bytes,
+                max_prompt_tokens=self.max_prompt_tokens,
             )
+            messages = context.messages
             self._record(
                 trace,
                 "context_build",
                 purpose=purpose,
                 recalled=len(hits),
-                messages=len(messages),
-                prompt_bytes=prompt_size(messages),
+                debug=context.debug.model_dump(),
             )
 
             async def draft_chunk(part: str) -> None:
