@@ -130,9 +130,7 @@ def test_task_router_can_load_knowledge_model_from_environment(monkeypatch):
     registry = ProviderRegistry([provider])
     monkeypatch.setenv("CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_PROVIDER", "fake")
     monkeypatch.setenv("CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_MODEL", "other")
-    monkeypatch.setenv(
-        "CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_TEMPERATURE", "0.2"
-    )
+    monkeypatch.setenv("CHARACTER_CHAT_TASK_KNOWLEDGE_EXTRACTOR_TEMPERATURE", "0.2")
 
     router = TaskRouter.from_env(registry)
     resolved = router.resolve("knowledge_extractor")
@@ -267,10 +265,12 @@ async def test_final_turn_persists_extraction_state_and_reinjects_next_context(
     assert relationships
     assert all(abs(item.score) <= 0.08 for item in relationships)
 
-    memory_step = [
+    memory_step = next(
         item for item in result.trace.steps if item.name == "memory_extraction"
-    ][0]
-    state_step = [item for item in result.trace.steps if item.name == "state_update"][0]
+    )
+    state_step = next(
+        item for item in result.trace.steps if item.name == "state_update"
+    )
     assert memory_step.status == "completed"
     assert state_step.status == "completed"
 
