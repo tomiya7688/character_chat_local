@@ -137,7 +137,7 @@ class KnowledgeExtractor:
             return result
         except ProviderError:
             reason = "provider_error"
-        except (ValueError, json.JSONDecodeError, ValidationError):
+        except (ValueError, TypeError, ValidationError):
             reason = "parse_error"
 
         fallback = self._deterministic(
@@ -245,7 +245,8 @@ class KnowledgeExtractor:
                 "User statements can be confirmed when explicit. Assistant-origin claims must not "
                 "be upgraded to confirmed merely because the assistant said them. Separate long-term "
                 "knowledge from current state and relationship candidates. Keep at most 20 items per list. "
-                "Schema: " + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                "Schema: "
+                + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
             ),
         )
         data = {
@@ -257,7 +258,10 @@ class KnowledgeExtractor:
         raw = await _collect_task_text(
             provider,
             assignment,
-            [system, ChatMessage(role="user", content=json.dumps(data, ensure_ascii=False))],
+            [
+                system,
+                ChatMessage(role="user", content=json.dumps(data, ensure_ascii=False)),
+            ],
         )
         first = raw.find("{")
         last = raw.rfind("}")
@@ -265,7 +269,7 @@ class KnowledgeExtractor:
             raise ValueError("knowledge extractor did not return an object")
         payload = json.loads(raw[first : last + 1])
         if not isinstance(payload, dict):
-            raise ValueError("knowledge extractor result must be an object")
+            raise TypeError("knowledge extractor result must be an object")
         payload["strategy"] = "model-v1"
         payload["fallback_reason"] = None
         result = KnowledgeExtractionResult.model_validate(payload)
@@ -399,9 +403,7 @@ class KnowledgeExtractor:
 
         relations = self._relations(user_message, "user", "confirmed", 0.9)
         relations.extend(
-            self._relations(
-                final_assistant_message, "assistant", "inferred", 0.6
-            )
+            self._relations(final_assistant_message, "assistant", "inferred", 0.6)
         )
 
         events: list[EventCandidate] = []
@@ -467,7 +469,9 @@ class KnowledgeExtractor:
         return KnowledgeExtractionResult(
             strategy=strategy,
             entities=_unique_models(entities, ("name", "source_role")),
-            facts=_unique_models(facts, ("subject", "predicate", "value", "source_role")),
+            facts=_unique_models(
+                facts, ("subject", "predicate", "value", "source_role")
+            ),
             relations=_unique_models(
                 relations, ("subject", "predicate", "object", "source_role")
             ),
