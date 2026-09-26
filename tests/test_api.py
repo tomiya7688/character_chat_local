@@ -286,3 +286,36 @@ def test_global_quality_mode_is_used_when_no_override(tmp_path, provider):
         response = send(mode_client, conversation)
         assert response.status_code == 200
         assert response.json()["quality_mode"] == "fast"
+
+
+def test_post_final_knowledge_and_state_debug_endpoints(client):
+    character, conversation = new_conversation(client)
+    response = send(
+        client,
+        conversation,
+        user_input="今は東京駅にいる。あなたは親友だよ。これ覚えておいて。",
+    )
+    assert response.status_code == 200
+
+    messages = client.get(f"/conversations/{conversation}/messages").json()
+    extractions = client.get(
+        f"/conversations/{conversation}/knowledge-extractions"
+    ).json()
+    assert len(extractions) == 1
+    assert extractions[0]["user_message_id"] == messages[0]["id"]
+    assert extractions[0]["assistant_message_id"] == messages[1]["id"]
+    assert extractions[0]["extraction"]["facts"][0]["epistemic_state"] == "confirmed"
+
+    state = client.get(f"/characters/{character['id']}/state").json()
+    assert any(
+        item["owner"] == "user"
+        and item["key"] == "location"
+        and item["value"] == "東京駅"
+        and item["source_message_id"] == messages[0]["id"]
+        for item in state
+    )
+    relationship = client.get(
+        f"/characters/{character['id']}/relationship-state"
+    ).json()
+    assert relationship
+    assert all(abs(item["score"]) <= 0.08 for item in relationship)
