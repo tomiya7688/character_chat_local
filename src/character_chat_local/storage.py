@@ -15,10 +15,16 @@ from .models import (
     ConversationSummary,
     GenerationRun,
     GenerationStatus,
+    DynamicStateRecord,
+    EpistemicState,
     GuardianResult,
+    KnowledgeExtractionRecord,
+    KnowledgeExtractionResult,
     MemoryRecord,
     QualityMode,
+    RelationshipStateRecord,
     StoredMessage,
+    TurnCommitResult,
 )
 
 
@@ -91,12 +97,39 @@ class Storage:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS knowledge_extractions (
+                    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
+                    user_message_id TEXT NOT NULL, assistant_message_id TEXT NOT NULL,
+                    data_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS dynamic_state_history (
+                    id TEXT PRIMARY KEY, character_id TEXT NOT NULL,
+                    owner TEXT NOT NULL, state_key TEXT NOT NULL, value TEXT NOT NULL,
+                    confidence REAL NOT NULL, epistemic_state TEXT NOT NULL,
+                    source_message_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS relationship_state_history (
+                    id TEXT PRIMARY KEY, change_id TEXT NOT NULL,
+                    character_id TEXT NOT NULL, dimension TEXT NOT NULL,
+                    score REAL NOT NULL, label TEXT NOT NULL,
+                    confidence REAL NOT NULL, epistemic_state TEXT NOT NULL,
+                    source_message_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE INDEX IF NOT EXISTS ix_messages_conversation
                     ON messages(conversation_id);
                 CREATE INDEX IF NOT EXISTS ix_generation_runs_conversation
                     ON generation_runs(conversation_id, created_at);
                 CREATE INDEX IF NOT EXISTS ix_memories_character
                     ON memories(character_id);
+                CREATE INDEX IF NOT EXISTS ix_knowledge_extractions_conversation
+                    ON knowledge_extractions(conversation_id, created_at);
+                CREATE INDEX IF NOT EXISTS ix_dynamic_state_character
+                    ON dynamic_state_history(character_id, owner, state_key, created_at);
+                CREATE INDEX IF NOT EXISTS ix_relationship_state_character
+                    ON relationship_state_history(character_id, dimension, created_at);
             """)
             # Additive migration: preserve existing DBs, message IDs and row order.
             if "revision" not in {
@@ -569,6 +602,268 @@ class Storage:
             ).fetchall()
         return [MemoryRecord.model_validate_json(r["data_json"]) for r in rows]
 
+    def save_knowledge_extraction(
+        self,
+        *,
+        conversation_id: str,
+        user_message_id: str,
+        assistant_message_id: str,
+        extraction: KnowledgeExtractionResult,
+    ) -> KnowledgeExtractionRecord:
+        extraction_id = str(uuid4())
+        with self.session() as db:
+            conversation = self._conversation(db, conversation_id)
+            for message_id in (user_message_id, assistant_message_id):
+                source = db.execute(
+                    "SELECT c.character_id FROM messages m "
+                    "JOIN conversations c ON c.id=m.conversation_id "
+                    "WHERE m.id=? AND m.conversation_id=?",
+                    (message_id, conversation_id),
+                ).fetchone()
+                if not source or source["character_id"] != conversation.character_id:
+                    raise ValueError("knowledge extraction source mismatch")
+            db.execute(
+                "INSERT INTO knowledge_extractions("
+                "id, conversation_id, user_message_id, assistant_message_id, data_json"
+                ") VALUES (?, ?, ?, ?, ?)",
+                (
+                    extraction_id,
+                    conversation_id,
+                    user_message_id,
+                    assistant_message_id,
+                    extraction.model_dump_json(),
+                ),
+            )
+            row = db.execute(
+                "SELECT id, conversation_id, user_message_id, assistant_message_id, "
+                "data_json, created_at FROM knowledge_extractions WHERE id=?",
+                (extraction_id,),
+            ).fetchone()
+        return KnowledgeExtractionRecord(
+            id=row["id"],
+            conversation_id=row["conversation_id"],
+            user_message_id=row["user_message_id"],
+            assistant_message_id=row["assistant_message_id"],
+            extraction=KnowledgeExtractionResult.model_validate_json(row["data_json"]),
+            created_at=row["created_at"],
+        )
+
+    def list_knowledge_extractions(
+        self, conversation_id: str
+    ) -> list[KnowledgeExtractionRecord]:
+        with self.session() as db:
+            self._conversation(db, conversation_id)
+            rows = db.execute(
+                "SELECT id, conversation_id, user_message_id, assistant_message_id, "
+                "data_json, created_at FROM knowledge_extractions "
+                "WHERE conversation_id=? ORDER BY rowid",
+                (conversation_id,),
+            ).fetchall()
+        return [
+            KnowledgeExtractionRecord(
+                id=row["id"],
+                conversation_id=row["conversation_id"],
+                user_message_id=row["user_message_id"],
+                assistant_message_id=row["assistant_message_id"],
+                extraction=KnowledgeExtractionResult.model_validate_json(
+                    row["data_json"]
+                ),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def append_dynamic_state(
+        self,
+        *,
+        character_id: str,
+        owner: str,
+        key: str,
+        value: str,
+        confidence: float,
+        epistemic_state: EpistemicState,
+        source_message_id: str,
+    ) -> DynamicStateRecord:
+        state_id = str(uuid4())
+        with self.session() as db:
+            source = db.execute(
+                "SELECT c.character_id FROM messages m "
+                "JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?",
+                (source_message_id,),
+            ).fetchone()
+            if not source or source["character_id"] != character_id:
+                raise ValueError("state source must belong to the same character")
+            db.execute(
+                "INSERT INTO dynamic_state_history("
+                "id, character_id, owner, state_key, value, confidence, "
+                "epistemic_state, source_message_id"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    state_id,
+                    character_id,
+                    owner,
+                    key,
+                    value,
+                    confidence,
+                    epistemic_state,
+                    source_message_id,
+                ),
+            )
+            row = db.execute(
+                "SELECT * FROM dynamic_state_history WHERE id=?", (state_id,)
+            ).fetchone()
+        return DynamicStateRecord(
+            id=row["id"],
+            character_id=row["character_id"],
+            owner=row["owner"],
+            key=row["state_key"],
+            value=row["value"],
+            confidence=row["confidence"],
+            epistemic_state=row["epistemic_state"],
+            source_message_id=row["source_message_id"],
+            created_at=row["created_at"],
+        )
+
+    def latest_dynamic_states(self, character_id: str) -> list[DynamicStateRecord]:
+        with self.session() as db:
+            rows = db.execute(
+                "SELECT * FROM dynamic_state_history "
+                "WHERE character_id=? ORDER BY rowid",
+                (character_id,),
+            ).fetchall()
+        latest: dict[tuple[str, str], sqlite3.Row] = {}
+        for row in rows:
+            latest[(row["owner"], row["state_key"])] = row
+        return [
+            DynamicStateRecord(
+                id=row["id"],
+                character_id=row["character_id"],
+                owner=row["owner"],
+                key=row["state_key"],
+                value=row["value"],
+                confidence=row["confidence"],
+                epistemic_state=row["epistemic_state"],
+                source_message_id=row["source_message_id"],
+                created_at=row["created_at"],
+            )
+            for row in latest.values()
+        ]
+
+    def latest_relationship_states(
+        self, character_id: str
+    ) -> list[RelationshipStateRecord]:
+        with self.session() as db:
+            rows = db.execute(
+                "SELECT * FROM relationship_state_history "
+                "WHERE character_id=? ORDER BY rowid",
+                (character_id,),
+            ).fetchall()
+        latest: dict[str, sqlite3.Row] = {}
+        for row in rows:
+            latest[row["dimension"]] = row
+        return [
+            RelationshipStateRecord(
+                id=row["id"],
+                change_id=row["change_id"],
+                character_id=row["character_id"],
+                dimension=row["dimension"],
+                score=row["score"],
+                label=row["label"],
+                confidence=row["confidence"],
+                epistemic_state=row["epistemic_state"],
+                source_message_id=row["source_message_id"],
+                created_at=row["created_at"],
+            )
+            for row in latest.values()
+        ]
+
+    def append_relationship_state(
+        self,
+        *,
+        character_id: str,
+        dimension: str,
+        score: float,
+        label: str,
+        confidence: float,
+        epistemic_state: EpistemicState,
+        source_message_id: str,
+        change_id: str,
+    ) -> RelationshipStateRecord:
+        state_id = str(uuid4())
+        with self.session() as db:
+            source = db.execute(
+                "SELECT c.character_id FROM messages m "
+                "JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?",
+                (source_message_id,),
+            ).fetchone()
+            if not source or source["character_id"] != character_id:
+                raise ValueError("relationship source must belong to the same character")
+            db.execute(
+                "INSERT INTO relationship_state_history("
+                "id, change_id, character_id, dimension, score, label, confidence, "
+                "epistemic_state, source_message_id"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    state_id,
+                    change_id,
+                    character_id,
+                    dimension,
+                    score,
+                    label,
+                    confidence,
+                    epistemic_state,
+                    source_message_id,
+                ),
+            )
+            row = db.execute(
+                "SELECT * FROM relationship_state_history WHERE id=?", (state_id,)
+            ).fetchone()
+        return RelationshipStateRecord(
+            id=row["id"],
+            change_id=row["change_id"],
+            character_id=row["character_id"],
+            dimension=row["dimension"],
+            score=row["score"],
+            label=row["label"],
+            confidence=row["confidence"],
+            epistemic_state=row["epistemic_state"],
+            source_message_id=row["source_message_id"],
+            created_at=row["created_at"],
+        )
+
+    def context_state_memories(self, character_id: str) -> list[MemoryRecord]:
+        result: list[MemoryRecord] = []
+        for state in self.latest_dynamic_states(character_id):
+            result.append(
+                MemoryRecord(
+                    id=state.id,
+                    character_id=character_id,
+                    type="current_state",
+                    content=f"{state.owner}.{state.key}: {state.value}",
+                    importance=0.8,
+                    confidence=state.confidence,
+                    recall_mode="internal_only",
+                    source_message_id=state.source_message_id,
+                )
+            )
+        for state in self.latest_relationship_states(character_id):
+            result.append(
+                MemoryRecord(
+                    id=state.id,
+                    character_id=character_id,
+                    type="relationship",
+                    content=(
+                        f"{state.dimension}: {state.label} "
+                        f"(score={state.score:+.2f})"
+                    ),
+                    importance=0.8,
+                    confidence=state.confidence,
+                    recall_mode="internal_only",
+                    source_message_id=state.source_message_id,
+                )
+            )
+        return result
+
     @staticmethod
     def _evaluation(
         db: sqlite3.Connection,
@@ -592,6 +887,19 @@ class Storage:
             ),
         )
         return evaluation_id
+
+    def update_evaluation_metadata(
+        self, evaluation_id: str, metadata: dict[str, Any]
+    ) -> None:
+        with self.session() as db:
+            if not db.execute(
+                "SELECT 1 FROM response_evaluations WHERE id=?", (evaluation_id,)
+            ).fetchone():
+                raise KeyError("evaluation not found")
+            db.execute(
+                "UPDATE response_evaluations SET metadata_json=? WHERE id=?",
+                (json.dumps(metadata, ensure_ascii=False), evaluation_id),
+            )
 
     def save_evaluation(
         self,
@@ -623,7 +931,7 @@ class Storage:
         draft: str,
         guardian: GuardianResult,
         metadata: dict[str, Any],
-    ) -> None:
+    ) -> TurnCommitResult:
         if not guardian.passed or not text.strip():
             raise ValueError("only accepted non-empty replies may be committed")
         with self.session() as db:
@@ -633,11 +941,11 @@ class Storage:
                 raise ConversationConflict(
                     "conversation changed during generation; retry"
                 )
-            self._insert_message(
+            user_message_id = self._insert_message(
                 db, conversation.id, ChatMessage(role="user", content=user_input)
             )
             generation_id = metadata.get("generation_id")
-            self._insert_message(
+            assistant_message_id = self._insert_message(
                 db,
                 conversation.id,
                 ChatMessage(role="assistant", content=text),
@@ -650,7 +958,9 @@ class Storage:
                 "ON CONFLICT(conversation_id) DO UPDATE SET data_json=excluded.data_json",
                 (conversation.id, summary.model_dump_json()),
             )
-            self._evaluation(db, conversation.id, draft, text, guardian, metadata)
+            evaluation_id = self._evaluation(
+                db, conversation.id, draft, text, guardian, metadata
+            )
             if (
                 current.pending
                 and current.supersedes_message_id
@@ -670,4 +980,9 @@ class Storage:
             db.execute(
                 "UPDATE conversations SET revision=revision+1, pending=0 WHERE id=?",
                 (conversation.id,),
+            )
+            return TurnCommitResult(
+                user_message_id=user_message_id,
+                assistant_message_id=assistant_message_id,
+                evaluation_id=evaluation_id,
             )
