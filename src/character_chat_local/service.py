@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from contextlib import aclosing
 from typing import Any, Protocol
 
@@ -8,6 +9,7 @@ import httpx
 
 from .analysis import InputAnalyzer
 from .guardian import Guardian
+from .knowledge import KnowledgeExtractor
 from .models import (
     CharacterCore,
     ChatMessage,
@@ -28,8 +30,10 @@ from .prompting import (
 from .providers import AIProvider, ProviderError
 from .quality import LightweightDraftChecker
 from .recall import RecallEngine
+from .state import StateCandidateCommitter
 from .storage import Storage
 from .summary import SummaryEngine
+from .task_router import TaskRouter
 
 
 class ProgressCallback(Protocol):
@@ -93,6 +97,7 @@ class ChatService:
         max_prompt_tokens: int = DEFAULT_PROMPT_TOKENS,
         timeout: float = 300.0,
         default_quality_mode: QualityMode = "balanced",
+        task_router: TaskRouter | None = None,
     ):
         if default_quality_mode not in {"fast", "balanced", "strict"}:
             raise ValueError("invalid default quality mode")
@@ -102,6 +107,8 @@ class ChatService:
         self.guardian = Guardian()
         self.lightweight = LightweightDraftChecker()
         self.summary = SummaryEngine()
+        self.knowledge = KnowledgeExtractor(task_router)
+        self.state_committer = StateCandidateCommitter(storage)
         self.max_prompt_bytes = max_prompt_bytes
         self.max_prompt_tokens = max_prompt_tokens
         self.timeout = timeout
@@ -165,7 +172,10 @@ class ChatService:
         quality_mode = self.resolve_quality_mode(character, conversation)
         trace = TurnTrace(quality_mode=quality_mode)
 
-        memories = self.storage.list_memories(character.id)
+        memories = [
+            *self.storage.list_memories(character.id),
+            *self.storage.context_state_memories(character.id),
+        ]
         known_entities = [
             entity
             for memory in memories
@@ -430,8 +440,10 @@ class ChatService:
             self._record(trace, "evaluation_log", evaluation_id=evaluation_id)
             raise QualityRejected(evaluation_id, guardian, trace)
 
+        commit = None
+        evaluation_id: str | None = None
         if conversation is not None:
-            self.storage.commit_turn(
+            commit = self.storage.commit_turn(
                 conversation=conversation,
                 user_input=user_input,
                 text=text,
@@ -442,7 +454,14 @@ class ChatService:
                 guardian=guardian,
                 metadata=metadata,
             )
-            self._record(trace, "finalize", persisted=True)
+            evaluation_id = commit.evaluation_id
+            self._record(
+                trace,
+                "finalize",
+                persisted=True,
+                user_message_id=commit.user_message_id,
+                assistant_message_id=commit.assistant_message_id,
+            )
         else:
             evaluation_id = self.storage.save_evaluation(
                 None, draft, text, guardian, metadata
@@ -454,21 +473,97 @@ class ChatService:
                 evaluation_id=evaluation_id,
             )
 
-        # #97/#98 own the real post-final extractors. Keep explicit orchestration
-        # steps now so these hooks can be filled without changing turn ordering.
-        self._record(
-            trace,
-            "memory_extraction",
-            status="skipped",
-            reason="knowledge_extractor_not_implemented",
-        )
-        self._record(
-            trace,
-            "state_update",
-            status="skipped",
-            reason="state_updater_not_implemented",
-        )
+        if conversation is not None and commit is not None:
+            try:
+                extraction = await self.knowledge.extract(
+                    character=character,
+                    user_message=user_input,
+                    final_assistant_message=text,
+                    input_analysis=analysis,
+                )
+                extraction_record = self.storage.save_knowledge_extraction(
+                    conversation_id=conversation.id,
+                    user_message_id=commit.user_message_id,
+                    assistant_message_id=commit.assistant_message_id,
+                    extraction=extraction,
+                )
+                self._record(
+                    trace,
+                    "memory_extraction",
+                    strategy=extraction.strategy,
+                    fallback_reason=extraction.fallback_reason,
+                    extraction_id=extraction_record.id,
+                    long_term_candidates=(
+                        len(extraction.entities)
+                        + len(extraction.facts)
+                        + len(extraction.relations)
+                        + len(extraction.events)
+                        + len(extraction.preferences)
+                        + len(extraction.aliases)
+                    ),
+                    current_state_candidates=len(
+                        extraction.current_state_candidates
+                    ),
+                    relationship_candidates=len(
+                        extraction.relationship_candidates
+                    ),
+                )
+
+                state_result = self.state_committer.commit(
+                    character_id=character.id,
+                    extraction=extraction,
+                    user_message_id=commit.user_message_id,
+                    assistant_message_id=commit.assistant_message_id,
+                )
+                self._record(
+                    trace,
+                    "state_update",
+                    dynamic_committed=len(state_result.dynamic_states),
+                    relationship_committed=len(
+                        state_result.relationship_states
+                    ),
+                    rejected=state_result.rejected,
+                )
+                metadata["knowledge_extraction_id"] = extraction_record.id
+                metadata["state_commit"] = {
+                    "dynamic": len(state_result.dynamic_states),
+                    "relationship": len(state_result.relationship_states),
+                    "rejected": state_result.rejected,
+                }
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                self._record(
+                    trace,
+                    "memory_extraction",
+                    status="failed",
+                    reason=type(exc).__name__,
+                )
+                self._record(
+                    trace,
+                    "state_update",
+                    status="skipped",
+                    reason="post_final_extraction_failed",
+                )
+        else:
+            self._record(
+                trace,
+                "memory_extraction",
+                status="skipped",
+                reason="no_persisted_turn",
+            )
+            self._record(
+                trace,
+                "state_update",
+                status="skipped",
+                reason="no_persisted_turn",
+            )
+
         self._record(trace, "evaluation_log", persisted=True)
+        metadata["turn_trace"] = trace.model_dump()
+        if evaluation_id is not None:
+            try:
+                self.storage.update_evaluation_metadata(evaluation_id, metadata)
+            except (KeyError, sqlite3.Error):
+                pass
 
         return ChatRunResult(
             text=text,
