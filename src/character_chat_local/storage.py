@@ -749,6 +749,30 @@ class Storage:
             for row in latest.values()
         ]
 
+    def dynamic_state_history(
+        self, character_id: str
+    ) -> list[DynamicStateRecord]:
+        with self.session() as db:
+            rows = db.execute(
+                "SELECT * FROM dynamic_state_history "
+                "WHERE character_id=? ORDER BY rowid",
+                (character_id,),
+            ).fetchall()
+        return [
+            DynamicStateRecord(
+                id=row["id"],
+                character_id=row["character_id"],
+                owner=row["owner"],
+                key=row["state_key"],
+                value=row["value"],
+                confidence=row["confidence"],
+                epistemic_state=row["epistemic_state"],
+                source_message_id=row["source_message_id"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
     def latest_relationship_states(
         self, character_id: str
     ) -> list[RelationshipStateRecord]:
@@ -775,6 +799,31 @@ class Storage:
                 created_at=row["created_at"],
             )
             for row in latest.values()
+        ]
+
+    def relationship_state_history(
+        self, character_id: str
+    ) -> list[RelationshipStateRecord]:
+        with self.session() as db:
+            rows = db.execute(
+                "SELECT * FROM relationship_state_history "
+                "WHERE character_id=? ORDER BY rowid",
+                (character_id,),
+            ).fetchall()
+        return [
+            RelationshipStateRecord(
+                id=row["id"],
+                change_id=row["change_id"],
+                character_id=row["character_id"],
+                dimension=row["dimension"],
+                score=row["score"],
+                label=row["label"],
+                confidence=row["confidence"],
+                epistemic_state=row["epistemic_state"],
+                source_message_id=row["source_message_id"],
+                created_at=row["created_at"],
+            )
+            for row in rows
         ]
 
     def append_relationship_state(
