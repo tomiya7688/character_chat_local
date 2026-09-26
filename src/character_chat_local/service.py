@@ -570,9 +570,7 @@ class ChatService:
                         )
                         metadata["state_commit"] = {
                             "dynamic": len(state_result.dynamic_states),
-                            "relationship": len(
-                                state_result.relationship_states
-                            ),
+                            "relationship": len(state_result.relationship_states),
                             "rejected": state_result.rejected,
                         }
         else:
