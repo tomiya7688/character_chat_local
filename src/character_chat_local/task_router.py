@@ -26,9 +26,7 @@ class TaskRouter:
         self.registry = registry
         self._assignments = dict(assignments or {})
 
-    def set_assignment(
-        self, role: TaskRole, assignment: TaskAssignment | None
-    ) -> None:
+    def set_assignment(self, role: TaskRole, assignment: TaskAssignment | None) -> None:
         if assignment is None:
             self._assignments.pop(role, None)
             return
@@ -38,9 +36,7 @@ class TaskRouter:
     def assignment(self, role: TaskRole) -> TaskAssignment | None:
         return self._assignments.get(role)
 
-    def resolve(
-        self, role: TaskRole
-    ) -> tuple[AIProvider, TaskAssignment] | None:
+    def resolve(self, role: TaskRole) -> tuple[AIProvider, TaskAssignment] | None:
         assignment = self.assignment(role)
         if assignment is None:
             return None
@@ -59,15 +55,11 @@ class TaskRouter:
             if not provider_id and not model:
                 continue
             if not provider_id or not model:
-                raise RuntimeError(
-                    f"task role {role} requires both provider and model"
-                )
+                raise RuntimeError(f"task role {role} requires both provider and model")
             try:
                 temperature = float(temperature_raw)
             except ValueError as exc:
-                raise RuntimeError(
-                    f"task role {role} has invalid temperature"
-                ) from exc
+                raise RuntimeError(f"task role {role} has invalid temperature") from exc
             router.set_assignment(
                 role,
                 TaskAssignment(
