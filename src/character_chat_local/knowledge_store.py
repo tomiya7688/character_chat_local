@@ -70,6 +70,14 @@ _FUTURE_MARKERS = (
 )
 _INTENT_MARKERS = (
     "したい",
+    "行きたい",
+    "見たい",
+    "食べたい",
+    "会いたい",
+    "話したい",
+    "やりたい",
+    "欲しい",
+    "ほしい",
     "しようと",
     "したがって",
     "する気",
@@ -133,12 +141,12 @@ def _record_type(
         )
     ):
         return "PLAN"
+    if source_role == "assistant":
+        return "CLAIM"
     if epistemic_state == "hypothesis":
         return "HYPOTHESIS"
     if epistemic_state == "inferred":
         return "INFERENCE"
-    if source_role == "assistant":
-        return "CLAIM"
     return "EVENT" if event else "FACT"
 
 
