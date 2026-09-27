@@ -287,6 +287,58 @@ def create_app(
         character_or_404(character_id)
         return storage().latest_relationship_states(character_id)
 
+    @app.get("/characters/{character_id}/knowledge/owner")
+    def knowledge_owner(character_id: str):
+        character_or_404(character_id)
+        owner = app.state.service.knowledge_dictionary.find_owner(
+            "character", character_id=character_id
+        )
+        return owner
+
+    @app.get("/characters/{character_id}/knowledge/records")
+    def knowledge_records(
+        character_id: str,
+        q: str = Query(..., min_length=1, max_length=300),
+    ):
+        character_or_404(character_id)
+        owner = app.state.service.knowledge_dictionary.find_owner(
+            "character", character_id=character_id
+        )
+        if owner is None:
+            return []
+        return app.state.service.knowledge_dictionary.lookup_records(owner.id, q)
+
+    @app.get("/characters/{character_id}/knowledge/relations")
+    def knowledge_relations(
+        character_id: str,
+        entity: str = Query(..., min_length=1, max_length=200),
+    ):
+        character_or_404(character_id)
+        owner = app.state.service.knowledge_dictionary.find_owner(
+            "character", character_id=character_id
+        )
+        if owner is None:
+            return []
+        return app.state.service.knowledge_dictionary.lookup_relations(
+            owner.id, entity
+        )
+
+    @app.get("/characters/{character_id}/knowledge/history")
+    def knowledge_history(
+        character_id: str,
+        subject: str = Query(..., min_length=1, max_length=200),
+        predicate: str = Query(..., min_length=1, max_length=120),
+    ):
+        character_or_404(character_id)
+        owner = app.state.service.knowledge_dictionary.find_owner(
+            "character", character_id=character_id
+        )
+        if owner is None:
+            return []
+        return app.state.service.knowledge_dictionary.record_history(
+            owner.id, subject, predicate
+        )
+
     @app.get("/conversations/{conversation_id}/summary")
     def get_summary(conversation_id: str):
         conversation_or_404(conversation_id)
