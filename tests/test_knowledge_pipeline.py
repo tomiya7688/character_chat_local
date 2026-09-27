@@ -268,11 +268,20 @@ async def test_final_turn_persists_extraction_state_and_reinjects_next_context(
     memory_step = next(
         item for item in result.trace.steps if item.name == "memory_extraction"
     )
+    knowledge_step = next(
+        item for item in result.trace.steps if item.name == "knowledge_commit"
+    )
     state_step = next(
         item for item in result.trace.steps if item.name == "state_update"
     )
     assert memory_step.status == "completed"
+    assert knowledge_step.status == "completed"
+    assert knowledge_step.details["records_created"] >= 1
     assert state_step.status == "completed"
+
+    owner_id = knowledge_step.details["owner_id"]
+    canonical_hits = service.knowledge_dictionary.lookup_records(owner_id, "コーヒー")
+    assert any(hit.record.predicate == "likes" for hit in canonical_hits)
 
     second_provider = ScriptedProvider(["続けよう。"])
     await service.run(
@@ -301,6 +310,10 @@ async def test_failed_or_cancelled_turn_never_persists_extraction(setup_chat):
     assert storage.list_knowledge_extractions(conversation) == []
     assert storage.latest_dynamic_states(character.id) == []
     assert storage.latest_relationship_states(character.id) == []
+    owner = service.knowledge_dictionary.get_or_create_owner(
+        "character", character_id=character.id
+    )
+    assert service.knowledge_dictionary.active_records(owner.id) == []
 
     class SlowProvider(AIProvider):
         id = "slow"
