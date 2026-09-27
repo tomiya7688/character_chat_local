@@ -618,8 +618,6 @@ class KnowledgeDictionary:
                 timeline_id=timeline_id,
             )
             result.entities_created += int(entity_created)
-            result.entities_created += int(entity_created)
-            result.entities_created += int(entity_created)
             result.records_created += int(created)
             result.records_merged += int(merged)
             result.records_superseded += superseded
@@ -638,6 +636,7 @@ class KnowledgeDictionary:
                 source_message_id=source_ids[candidate.source_role],
                 timeline_id=timeline_id,
             )
+            result.entities_created += int(entity_created)
             result.records_created += int(created)
             result.records_merged += int(merged)
             result.records_superseded += superseded
@@ -661,6 +660,7 @@ class KnowledgeDictionary:
                 event=True,
                 time_reference=candidate.time_reference,
             )
+            result.entities_created += int(entity_created)
             result.records_created += int(created)
             result.records_merged += int(merged)
             result.records_superseded += superseded
