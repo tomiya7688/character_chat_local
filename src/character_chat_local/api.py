@@ -319,9 +319,7 @@ def create_app(
         )
         if owner is None:
             return []
-        return app.state.service.knowledge_dictionary.lookup_relations(
-            owner.id, entity
-        )
+        return app.state.service.knowledge_dictionary.lookup_relations(owner.id, entity)
 
     @app.get("/characters/{character_id}/knowledge/history")
     def knowledge_history(
