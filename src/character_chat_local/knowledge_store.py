@@ -124,6 +124,8 @@ def _record_type(
     folded = text.casefold()
     if any(marker.casefold() in folded for marker in _INTENT_MARKERS):
         return "INTENT"
+    if any(marker.casefold() in folded for marker in _PREDICTION_MARKERS):
+        return "PREDICTION"
     if any(marker.casefold() in folded for marker in _FUTURE_MARKERS) or (
         time_reference
         and any(
@@ -132,8 +134,6 @@ def _record_type(
         )
     ):
         return "PLAN"
-    if any(marker.casefold() in folded for marker in _PREDICTION_MARKERS):
-        return "PREDICTION"
     if epistemic_state == "hypothesis":
         return "HYPOTHESIS"
     if epistemic_state == "inferred":
