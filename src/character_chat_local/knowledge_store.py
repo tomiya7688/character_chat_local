@@ -129,8 +129,7 @@ def _record_type(
     if any(marker.casefold() in folded for marker in _FUTURE_MARKERS) or (
         time_reference
         and any(
-            marker.casefold() in time_reference.casefold()
-            for marker in _FUTURE_MARKERS
+            marker.casefold() in time_reference.casefold() for marker in _FUTURE_MARKERS
         )
     ):
         return "PLAN"
@@ -421,16 +420,19 @@ class KnowledgeDictionary:
                 "WHERE a.owner_id=? AND a.normalized_alias=?",
                 (owner_id, normalized),
             ).fetchone()
-            row = alias or db.execute(
-                "SELECT * FROM knowledge_entities WHERE owner_id=? "
-                "AND normalized_name=? AND timeline_id=? AND temporal_instance=?",
-                (
-                    owner_id,
-                    normalized,
-                    owner.timeline_id,
-                    owner.temporal_instance,
-                ),
-            ).fetchone()
+            row = (
+                alias
+                or db.execute(
+                    "SELECT * FROM knowledge_entities WHERE owner_id=? "
+                    "AND normalized_name=? AND timeline_id=? AND temporal_instance=?",
+                    (
+                        owner_id,
+                        normalized,
+                        owner.timeline_id,
+                        owner.temporal_instance,
+                    ),
+                ).fetchone()
+            )
             if row is None:
                 entity_id = str(uuid4())
                 db.execute(
@@ -675,8 +677,10 @@ class KnowledgeDictionary:
             result.records_superseded += superseded
 
         for candidate in extraction.events:
-            subject = candidate.entities[0] if candidate.entities else (
-                "user" if candidate.source_role == "user" else character_id
+            subject = (
+                candidate.entities[0]
+                if candidate.entities
+                else ("user" if candidate.source_role == "user" else character_id)
             )
             created, merged, superseded, entity_created = self._promote_record(
                 owner_id=owner.id,
@@ -1054,9 +1058,7 @@ class KnowledgeDictionary:
             ).fetchone()
         return self._record_row(row)
 
-    def find_entity(
-        self, owner_id: str, name: str
-    ) -> KnowledgeEntityRecord | None:
+    def find_entity(self, owner_id: str, name: str) -> KnowledgeEntityRecord | None:
         normalized = normalize_knowledge_text(name)
         with self.storage.session() as db:
             row = db.execute(
