@@ -2,6 +2,7 @@ from character_chat_local.knowledge_store import KnowledgeDictionary
 from character_chat_local.models import (
     AliasCandidate,
     CharacterCore,
+    ChatMessage,
     EntityCandidate,
     EventCandidate,
     FactCandidate,
@@ -17,16 +18,11 @@ def setup_sources(tmp_path):
     storage.save_character(character)
     conversation = storage.create_conversation(character.id)
     user_id = storage.add_message(
-        conversation,
-        __import__(
-            "character_chat_local.models", fromlist=["ChatMessage"]
-        ).ChatMessage(role="user", content="knowledge source"),
+        conversation, ChatMessage(role="user", content="knowledge source")
     )
     assistant_id = storage.add_message(
         conversation,
-        __import__(
-            "character_chat_local.models", fromlist=["ChatMessage"]
-        ).ChatMessage(role="assistant", content="final reply"),
+        ChatMessage(role="assistant", content="final reply"),
         "fake",
         "small",
     )
@@ -295,10 +291,7 @@ def test_provenance_accumulates_without_duplicate_record(tmp_path):
         assistant_message_id=assistant_id,
     )
     second_user = storage.add_message(
-        conversation,
-        __import__(
-            "character_chat_local.models", fromlist=["ChatMessage"]
-        ).ChatMessage(role="user", content="again"),
+        conversation, ChatMessage(role="user", content="again")
     )
     dictionary.promote(
         character_id=character.id,
