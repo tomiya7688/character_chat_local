@@ -236,6 +236,13 @@ class KnowledgeDictionary:
                     source_role TEXT NOT NULL,
                     timeline_id TEXT NOT NULL DEFAULT 'main',
                     temporal_context TEXT NOT NULL DEFAULT 'unknown',
+                    observed_at TEXT,
+                    valid_from TEXT,
+                    valid_to TEXT,
+                    known_from TEXT,
+                    known_until TEXT,
+                    superseded_by TEXT,
+                    invalidated_at TEXT,
                     conversation_id TEXT NOT NULL,
                     branch_id TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -276,6 +283,23 @@ class KnowledgeDictionary:
                     ON knowledge_provenance(source_message_id);
                 """
             )
+            relation_columns = {
+                row["name"]
+                for row in db.execute("PRAGMA table_info(knowledge_relations)")
+            }
+            for name in (
+                "observed_at",
+                "valid_from",
+                "valid_to",
+                "known_from",
+                "known_until",
+                "superseded_by",
+                "invalidated_at",
+            ):
+                if name not in relation_columns:
+                    db.execute(
+                        f"ALTER TABLE knowledge_relations ADD COLUMN {name} TEXT"
+                    )
 
     def find_owner(
         self,
@@ -837,9 +861,9 @@ class KnowledgeDictionary:
                         for row in rows:
                             db.execute(
                                 "UPDATE knowledge_records SET status='superseded', "
-                                "superseded_by=?, valid_to=?, updated_at=CURRENT_TIMESTAMP "
-                                "WHERE id=?",
-                                (record_id, now, row["id"]),
+                                "superseded_by=?, valid_to=?, known_until=?, "
+                                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                                (record_id, now, now, row["id"]),
                             )
                             superseded += 1
         self._add_provenance(
@@ -918,13 +942,14 @@ class KnowledgeDictionary:
                 merged = True
             else:
                 relation_id = str(uuid4())
+                now = _now().isoformat()
                 db.execute(
                     "INSERT INTO knowledge_relations("
                     "id, owner_id, subject_entity_id, relation_type, object_entity_id, "
                     "inverse_relation_type, symmetric, status, confidence, "
                     "epistemic_state, source_role, timeline_id, temporal_context, "
-                    "conversation_id, branch_id"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'unknown', ?, ?)",
+                    "observed_at, valid_from, known_from, conversation_id, branch_id"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'unknown', ?, ?, ?, ?, ?)",
                     (
                         relation_id,
                         owner_id,
@@ -937,6 +962,9 @@ class KnowledgeDictionary:
                         stored_epistemic,
                         source_role,
                         timeline_id,
+                        now,
+                        now,
+                        now,
                         conversation_id,
                         branch_id,
                     ),
@@ -952,6 +980,26 @@ class KnowledgeDictionary:
             branch_id,
         )
         return created, merged, int(subject_created) + int(object_created)
+
+    def invalidate_relation(self, relation_id: str) -> KnowledgeRelationRecord:
+        now = _now().isoformat()
+        with self.storage.session() as db:
+            row = db.execute(
+                "SELECT * FROM knowledge_relations WHERE id=?", (relation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError("knowledge relation not found")
+            if row["status"] == "active":
+                db.execute(
+                    "UPDATE knowledge_relations SET status='invalidated', "
+                    "invalidated_at=?, known_until=?, valid_to=?, "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (now, now, now, relation_id),
+                )
+            row = db.execute(
+                "SELECT * FROM knowledge_relations WHERE id=?", (relation_id,)
+            ).fetchone()
+        return self._relation_row(row)
 
     def active_records(self, owner_id: str) -> list[KnowledgeRecord]:
         with self.storage.session() as db:
