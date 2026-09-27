@@ -342,8 +342,7 @@ def test_canonical_knowledge_lookup_endpoints(client):
     )
     assert records.status_code == 200
     assert any(
-        hit["record"]["predicate"] == "likes"
-        and hit["matched_on"] == "value"
+        hit["record"]["predicate"] == "likes" and hit["matched_on"] == "value"
         for hit in records.json()
     )
 
