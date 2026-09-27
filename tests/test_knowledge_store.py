@@ -306,3 +306,68 @@ def test_provenance_accumulates_without_duplicate_record(tmp_path):
     record = dictionary.active_records(promoted.owner_id)[0]
     sources = dictionary.provenance("record", record.id)
     assert {item.source_message_id for item in sources} == {user_id, second_user}
+
+
+def test_knowledge_owners_are_isolated_by_owner_and_timeline(tmp_path):
+    storage = Storage(tmp_path / "owners.db")
+    dictionary = KnowledgeDictionary(storage)
+
+    world = dictionary.get_or_create_owner("world")
+    user = dictionary.get_or_create_owner("user")
+    character_main = dictionary.get_or_create_owner(
+        "character", character_id="character-1", timeline_id="main"
+    )
+    character_alt = dictionary.get_or_create_owner(
+        "character", character_id="character-1", timeline_id="alternate"
+    )
+
+    assert len({world.id, user.id, character_main.id, character_alt.id}) == 4
+    assert character_main.timeline_id == "main"
+    assert character_alt.timeline_id == "alternate"
+    assert (
+        dictionary.find_owner("character", character_id="character-1").id
+        == character_main.id
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "epistemic", "source_role", "expected"),
+    [
+        ("映画を見たい", "confirmed", "user", "INTENT"),
+        ("明日は雨だろう", "confirmed", "user", "PREDICTION"),
+        ("明日映画を見る予定", "confirmed", "user", "PLAN"),
+        ("たぶん猫が好き", "inferred", "user", "INFERENCE"),
+        ("猫が好きかもしれない", "hypothesis", "user", "PREDICTION"),
+        ("昔京都へ行った", "confirmed", "assistant", "CLAIM"),
+    ],
+)
+def test_epistemic_record_types_do_not_auto_promote_to_fact(
+    tmp_path, value, epistemic, source_role, expected
+):
+    storage, character, conversation, user_id, assistant_id = setup_sources(tmp_path)
+    dictionary = KnowledgeDictionary(storage)
+    extraction = KnowledgeExtractionResult(
+        strategy="model-v1",
+        facts=[
+            FactCandidate(
+                subject="user",
+                predicate="note",
+                value=value,
+                source_role=source_role,
+                epistemic_state=epistemic,
+                confidence=0.9,
+            )
+        ],
+    )
+    promoted = dictionary.promote(
+        character_id=character.id,
+        extraction=extraction,
+        conversation_id=conversation,
+        user_message_id=user_id,
+        assistant_message_id=assistant_id,
+    )
+    record = dictionary.active_records(promoted.owner_id)[0]
+    assert record.record_type == expected
+    if source_role == "assistant":
+        assert record.epistemic_state == "inferred"
+        assert record.confidence <= 0.65
