@@ -319,3 +319,53 @@ def test_post_final_knowledge_and_state_debug_endpoints(client):
     ).json()
     assert relationship
     assert all(abs(item["score"]) <= 0.08 for item in relationship)
+
+
+def test_canonical_knowledge_lookup_endpoints(client):
+    character, conversation = new_conversation(client)
+    response = send(
+        client,
+        conversation,
+        user_input="アリスはボブの友達。コーヒーが好き。これ覚えておいて。",
+    )
+    assert response.status_code == 200
+
+    owner = client.get(f"/characters/{character['id']}/knowledge/owner")
+    assert owner.status_code == 200
+    owner_body = owner.json()
+    assert owner_body["owner_type"] == "character"
+    assert owner_body["character_id"] == character["id"]
+
+    records = client.get(
+        f"/characters/{character['id']}/knowledge/records",
+        params={"q": "コーヒー"},
+    )
+    assert records.status_code == 200
+    assert any(
+        hit["record"]["predicate"] == "likes"
+        and hit["matched_on"] == "value"
+        for hit in records.json()
+    )
+
+    forward = client.get(
+        f"/characters/{character['id']}/knowledge/relations",
+        params={"entity": "アリス"},
+    )
+    assert forward.status_code == 200
+    assert forward.json()[0]["direction"] == "forward"
+    assert forward.json()[0]["effective_relation_type"] == "friend_of"
+
+    reverse = client.get(
+        f"/characters/{character['id']}/knowledge/relations",
+        params={"entity": "ボブ"},
+    )
+    assert reverse.status_code == 200
+    assert reverse.json()[0]["direction"] == "reverse"
+    assert reverse.json()[0]["effective_relation_type"] == "friend_of"
+
+    history = client.get(
+        f"/characters/{character['id']}/knowledge/history",
+        params={"subject": "user", "predicate": "likes"},
+    )
+    assert history.status_code == 200
+    assert history.json()[0]["value"] == "コーヒー"
