@@ -37,6 +37,10 @@ buffered `/chat` は成功時に最終text、provider/model、Guardian結果、�
 | `GET /conversations/{id}/knowledge-extractions` | accepted Final後に生成したstructured Knowledge/State候補とsource message |
 | `GET /characters/{id}/state` | 最新Dynamic State |
 | `GET /characters/{id}/relationship-state` | 最新Relationship State |
+| `GET /characters/{id}/knowledge/owner` | active Character Knowledge Owner。Knowledge未作成ならnull |
+| `GET /characters/{id}/knowledge/records?q=<text>` | canonical recordをsubject/valueから検索。現時点ではdebug/research用途 |
+| `GET /characters/{id}/knowledge/relations?entity=<name>` | typed Relationをforward/reverse検索。reverseはinverse relation名を返す |
+| `GET /characters/{id}/knowledge/history?subject=<name>&predicate=<type>` | superseded/invalidatedを含むFact-like record履歴 |
 | `GET /characters/{id}/memories`, `POST /characters/{id}/memories` | 構造化Memory。source指定時は同一characterのmessage IDが必要 |
 | `GET /providers`, `GET /providers/{id}/models` | 設定済みProvider / model一覧。credentialは返さない |
 | `POST /conversations/{id}/chat/stream` | NDJSONで初回draft previewと検証状態を配信し、最後に確定Finalを返す |
@@ -73,7 +77,11 @@ Quality mode:
 Turn Traceには各stepのstatusと小さい診断情報を保持する。Input Analysis結果とContext Debugもここへ記録する。accepted persisted turnではKnowledge ExtractionとState Updateのcandidate/commit件数も記録する。
 
 Knowledge ExtractionはDraftを使わず、User Message + accepted Final Assistant Messageのみを解析する。long-term候補とCurrent State/Relationship候補を分離し、source roleとconfirmed/inferred/hypothesisを保持する。model structured outputのparse/provider失敗時はdeterministic fallback。
-State commit ruleはhypothesisを拒否し、owner/source整合性とconfidenceを確認する。Relationship score deltaは急変防止のためturn単位でclampする。long-term Knowledge候補はまだcandidate auditであり、自動Memory昇格しない。
+State commit ruleはhypothesisを拒否し、owner/source整合性とconfidenceを確認する。Relationship score deltaは急変防止のためturn単位でclampする。
+
+Long-term candidateはaudit保存後、canonical Knowledge storeへpromotionする。canonical storeはCharacter ownerごとにEntity/Alias、FACT/CLAIM/INTENT/PLAN/INFERENCE/HYPOTHESIS/PREDICTION/EVENT、typed Relation、source provenanceを保持する。
+exact duplicateはmerge、single-valued User-confirmed FACTの新値は旧recordをsupersededにする。hard deleteは行わない。Assistant-origin confirmed候補は新規FACTではなくCLAIM/inferredへdowngradeし、Assistant/推測Aliasはcanonical identityへ自動mergeしない。
+このcanonical storeはまだPrimary Recallに使わない。現行branch schemaではconversation_id == branch_idのため、#166/#132が完了するまでsibling branch可視性を安全に解決できないためである。legacy `memories` tableも #150 正式migrationまでは残す。
 
 Context orderは次で固定:
 1. Runtime rules
@@ -97,7 +105,7 @@ total generation timeoutは既定300秒、各出力は最大8,000文字。
 
 ```bash
 python -m pytest -q tests/test_input_analysis.py tests/test_context_builder.py tests/test_quality_modes.py
-python -m pytest -q tests/test_knowledge_pipeline.py
+python -m pytest -q tests/test_knowledge_pipeline.py tests/test_knowledge_store.py
 python -m pytest -q tests/test_api.py tests/test_runtime.py
 python -m pytest -q tests/test_summary.py tests/test_long_turn.py
 python -m pytest -q
