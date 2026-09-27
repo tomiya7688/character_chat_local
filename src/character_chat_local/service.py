@@ -504,6 +504,12 @@ class ChatService:
                 )
                 self._record(
                     trace,
+                    "knowledge_commit",
+                    status="skipped",
+                    reason="knowledge_extraction_failed",
+                )
+                self._record(
+                    trace,
                     "state_update",
                     status="skipped",
                     reason="knowledge_extraction_failed",
@@ -522,6 +528,12 @@ class ChatService:
                         "memory_extraction",
                         status="failed",
                         reason=type(exc).__name__,
+                    )
+                    self._record(
+                        trace,
+                        "knowledge_commit",
+                        status="skipped",
+                        reason="knowledge_persistence_failed",
                     )
                     self._record(
                         trace,
