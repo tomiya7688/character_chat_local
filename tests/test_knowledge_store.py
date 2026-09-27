@@ -373,3 +373,30 @@ def test_epistemic_record_types_do_not_auto_promote_to_fact(
     if source_role == "assistant":
         assert record.epistemic_state == "inferred"
         assert record.confidence <= 0.65
+
+
+def test_unverified_alias_does_not_poison_canonical_identity(tmp_path):
+    storage, character, conversation, user_id, assistant_id = setup_sources(tmp_path)
+    dictionary = KnowledgeDictionary(storage)
+    extraction = KnowledgeExtractionResult(
+        strategy="model-v1",
+        aliases=[
+            AliasCandidate(
+                entity="アリス",
+                alias="王女",
+                source_role="assistant",
+                epistemic_state="confirmed",
+                confidence=0.99,
+            )
+        ],
+    )
+    promoted = dictionary.promote(
+        character_id=character.id,
+        extraction=extraction,
+        conversation_id=conversation,
+        user_message_id=user_id,
+        assistant_message_id=assistant_id,
+    )
+    assert promoted.aliases_created == 0
+    assert promoted.rejected == ["alias_unverified:王女"]
+    assert dictionary.find_entity(promoted.owner_id, "王女") is None
