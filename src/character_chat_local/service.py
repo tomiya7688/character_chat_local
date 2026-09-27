@@ -10,6 +10,7 @@ import httpx
 from .analysis import InputAnalyzer
 from .guardian import Guardian
 from .knowledge import KnowledgeExtractor
+from .knowledge_store import KnowledgeDictionary
 from .models import (
     CharacterCore,
     ChatMessage,
@@ -108,6 +109,7 @@ class ChatService:
         self.lightweight = LightweightDraftChecker()
         self.summary = SummaryEngine()
         self.knowledge = KnowledgeExtractor(task_router)
+        self.knowledge_dictionary = KnowledgeDictionary(storage)
         self.state_committer = StateCandidateCommitter(storage)
         self.max_prompt_bytes = max_prompt_bytes
         self.max_prompt_tokens = max_prompt_tokens
@@ -430,6 +432,12 @@ class ChatService:
             )
             self._record(
                 trace,
+                "knowledge_commit",
+                status="skipped",
+                reason="final_not_accepted",
+            )
+            self._record(
+                trace,
                 "state_update",
                 status="skipped",
                 reason="final_not_accepted",
@@ -545,6 +553,36 @@ class ChatService:
                     )
                     metadata["knowledge_extraction_id"] = extraction_record.id
                     try:
+                        promotion = self.knowledge_dictionary.promote(
+                            character_id=character.id,
+                            extraction=pending_extraction,
+                            conversation_id=conversation.id,
+                            user_message_id=commit.user_message_id,
+                            assistant_message_id=commit.assistant_message_id,
+                        )
+                    except (ValueError, KeyError, sqlite3.Error) as exc:
+                        self._record(
+                            trace,
+                            "knowledge_commit",
+                            status="failed",
+                            reason=type(exc).__name__,
+                        )
+                    else:
+                        self._record(
+                            trace,
+                            "knowledge_commit",
+                            owner_id=promotion.owner_id,
+                            entities_created=promotion.entities_created,
+                            aliases_created=promotion.aliases_created,
+                            records_created=promotion.records_created,
+                            records_merged=promotion.records_merged,
+                            records_superseded=promotion.records_superseded,
+                            relations_created=promotion.relations_created,
+                            relations_merged=promotion.relations_merged,
+                            rejected=promotion.rejected,
+                        )
+                        metadata["knowledge_commit"] = promotion.model_dump()
+                    try:
                         state_result = self.state_committer.commit(
                             character_id=character.id,
                             extraction=pending_extraction,
@@ -577,6 +615,12 @@ class ChatService:
             self._record(
                 trace,
                 "memory_extraction",
+                status="skipped",
+                reason="no_persisted_turn",
+            )
+            self._record(
+                trace,
+                "knowledge_commit",
                 status="skipped",
                 reason="no_persisted_turn",
             )
