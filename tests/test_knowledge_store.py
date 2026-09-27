@@ -1,3 +1,5 @@
+import pytest
+
 from character_chat_local.knowledge_store import KnowledgeDictionary
 from character_chat_local.models import (
     AliasCandidate,
