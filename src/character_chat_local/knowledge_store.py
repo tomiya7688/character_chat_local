@@ -277,6 +277,32 @@ class KnowledgeDictionary:
                 """
             )
 
+    def find_owner(
+        self,
+        owner_type: KnowledgeOwnerType,
+        *,
+        character_id: str | None = None,
+        timeline_id: str = "main",
+        temporal_instance: str = "present",
+    ) -> KnowledgeOwnerRecord | None:
+        stored_character_id = character_id or ""
+        with self.storage.session() as db:
+            row = db.execute(
+                "SELECT * FROM knowledge_owners WHERE owner_type=? AND character_id=? "
+                "AND timeline_id=? AND temporal_instance=?",
+                (owner_type, stored_character_id, timeline_id, temporal_instance),
+            ).fetchone()
+        if row is None:
+            return None
+        return KnowledgeOwnerRecord(
+            id=row["id"],
+            owner_type=row["owner_type"],
+            character_id=row["character_id"] or None,
+            timeline_id=row["timeline_id"],
+            temporal_instance=row["temporal_instance"],
+            created_at=row["created_at"],
+        )
+
     def get_or_create_owner(
         self,
         owner_type: KnowledgeOwnerType,
