@@ -234,6 +234,8 @@ def test_assistant_claim_does_not_supersede_user_fact(tmp_path):
     assert fact.record_type == "FACT"
     assert claim.status == "active"
     assert claim.record_type == "CLAIM"
+    assert claim.epistemic_state == "inferred"
+    assert claim.confidence <= 0.65
     assert second.records_superseded == 0
 
 
