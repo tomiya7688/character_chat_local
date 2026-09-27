@@ -733,9 +733,19 @@ class KnowledgeDictionary:
                 created = False
                 superseded = 0
             else:
+                stored_epistemic = (
+                    "inferred"
+                    if source_role == "assistant" and epistemic_state == "confirmed"
+                    else epistemic_state
+                )
+                stored_confidence = (
+                    min(confidence, 0.65)
+                    if source_role == "assistant" and epistemic_state == "confirmed"
+                    else confidence
+                )
                 record_type = _record_type(
                     source_role=source_role,
-                    epistemic_state=epistemic_state,
+                    epistemic_state=stored_epistemic,
                     text=value,
                     event=event,
                     time_reference=time_reference,
@@ -869,6 +879,16 @@ class KnowledgeDictionary:
             branch_id=branch_id,
         )
         relation_type, inverse_type, symmetric = _relation_mapping(predicate)
+        stored_epistemic = (
+            "inferred"
+            if source_role == "assistant" and epistemic_state == "confirmed"
+            else epistemic_state
+        )
+        stored_confidence = (
+            min(confidence, 0.65)
+            if source_role == "assistant" and epistemic_state == "confirmed"
+            else confidence
+        )
         with self.storage.session() as db:
             row = db.execute(
                 "SELECT * FROM knowledge_relations WHERE owner_id=? "
@@ -886,7 +906,7 @@ class KnowledgeDictionary:
                 db.execute(
                     "UPDATE knowledge_relations SET confidence=MAX(confidence, ?), "
                     "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                    (confidence, row["id"]),
+                    (stored_confidence, row["id"]),
                 )
                 relation_id = row["id"]
                 created = False
@@ -908,8 +928,8 @@ class KnowledgeDictionary:
                         object_entity.id,
                         inverse_type,
                         int(symmetric),
-                        confidence,
-                        epistemic_state,
+                        stored_confidence,
+                        stored_epistemic,
                         source_role,
                         timeline_id,
                         conversation_id,
