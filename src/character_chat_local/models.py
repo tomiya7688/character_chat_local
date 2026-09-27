@@ -366,6 +366,13 @@ class KnowledgeRelationRecord(BaseModel):
     source_role: KnowledgeSourceRole
     timeline_id: str = "main"
     temporal_context: TemporalContext = "unknown"
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    known_from: datetime | None = None
+    known_until: datetime | None = None
+    superseded_by: str | None = None
+    invalidated_at: datetime | None = None
     conversation_id: str
     branch_id: str
     created_at: datetime
