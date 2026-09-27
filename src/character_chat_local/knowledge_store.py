@@ -723,11 +723,12 @@ class KnowledgeDictionary:
                 ),
             ).fetchone()
             if exact_fact is not None:
-                db.execute(
-                    "UPDATE knowledge_records SET confidence=MAX(confidence, ?), "
-                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                    (confidence, exact_fact["id"]),
-                )
+                if source_role == "user":
+                    db.execute(
+                        "UPDATE knowledge_records SET confidence=MAX(confidence, ?), "
+                        "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (confidence, exact_fact["id"]),
+                    )
                 record_id = exact_fact["id"]
                 merged = True
                 created = False
@@ -768,7 +769,7 @@ class KnowledgeDictionary:
                     db.execute(
                         "UPDATE knowledge_records SET confidence=MAX(confidence, ?), "
                         "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                        (confidence, exact["id"]),
+                        (stored_confidence, exact["id"]),
                     )
                     record_id = exact["id"]
                     merged = True
@@ -795,8 +796,8 @@ class KnowledgeDictionary:
                             value,
                             value_norm,
                             record_type,
-                            confidence,
-                            epistemic_state,
+                            stored_confidence,
+                            stored_epistemic,
                             source_role,
                             timeline_id,
                             temporal,
