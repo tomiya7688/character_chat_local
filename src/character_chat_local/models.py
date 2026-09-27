@@ -23,7 +23,17 @@ MemoryType = Literal[
 RecallMode = Literal["explicit", "implicit", "behavioral", "emotional", "internal_only"]
 GenerationStatus = Literal["generating", "completed", "stopped", "failed", "superseded"]
 QualityMode = Literal["fast", "balanced", "strict"]
-TurnStepStatus = Literal["completed", "skipped"]
+TurnStepStatus = Literal["completed", "skipped", "failed"]
+EpistemicState = Literal["confirmed", "inferred", "hypothesis"]
+KnowledgeSourceRole = Literal["user", "assistant"]
+TaskRole = Literal[
+    "main_chat",
+    "knowledge_extractor",
+    "draft_analyzer",
+    "knowledge_orchestrator",
+    "guardian",
+    "repair",
+]
 ContextSectionName = Literal[
     "runtime_rules",
     "character_core",
@@ -39,6 +49,12 @@ ContextSectionName = Literal[
 class ChatMessage(BaseModel):
     role: Role
     content: str
+
+
+class TaskAssignment(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=100)
+    model: str = Field(min_length=1, max_length=200)
+    temperature: float = Field(default=0.1, ge=0, le=2)
 
 
 class ModelInfo(BaseModel):
@@ -127,6 +143,134 @@ class ContextDebug(BaseModel):
 class ContextBuildResult(BaseModel):
     messages: list[ChatMessage]
     debug: ContextDebug
+
+
+class EntityCandidate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class FactCandidate(BaseModel):
+    subject: str = Field(min_length=1, max_length=200)
+    predicate: str = Field(min_length=1, max_length=120)
+    value: str = Field(min_length=1, max_length=500)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class RelationCandidate(BaseModel):
+    subject: str = Field(min_length=1, max_length=200)
+    predicate: str = Field(min_length=1, max_length=120)
+    object: str = Field(min_length=1, max_length=200)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class EventCandidate(BaseModel):
+    description: str = Field(min_length=1, max_length=800)
+    time_reference: str | None = Field(default=None, max_length=120)
+    entities: list[str] = Field(default_factory=list)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class PreferenceCandidate(BaseModel):
+    subject: str = Field(default="user", min_length=1, max_length=200)
+    value: str = Field(min_length=1, max_length=300)
+    sentiment: Literal["like", "dislike"]
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class AliasCandidate(BaseModel):
+    entity: str = Field(min_length=1, max_length=200)
+    alias: str = Field(min_length=1, max_length=200)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class DynamicStateCandidate(BaseModel):
+    owner: Literal["user", "character"]
+    key: Literal["emotion", "location", "concern", "unresolved_event", "recent_event"]
+    value: str = Field(min_length=1, max_length=500)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class RelationshipCandidate(BaseModel):
+    dimension: Literal["relationship", "trust", "affection"]
+    label: str = Field(min_length=1, max_length=300)
+    delta: float = Field(default=0.0, ge=-1, le=1)
+    source_role: KnowledgeSourceRole
+    epistemic_state: EpistemicState
+    confidence: float = Field(ge=0, le=1)
+
+
+class KnowledgeExtractionResult(BaseModel):
+    strategy: Literal["deterministic-v1", "model-v1", "model-fallback-v1"]
+    entities: list[EntityCandidate] = Field(default_factory=list)
+    facts: list[FactCandidate] = Field(default_factory=list)
+    relations: list[RelationCandidate] = Field(default_factory=list)
+    events: list[EventCandidate] = Field(default_factory=list)
+    preferences: list[PreferenceCandidate] = Field(default_factory=list)
+    aliases: list[AliasCandidate] = Field(default_factory=list)
+    current_state_candidates: list[DynamicStateCandidate] = Field(default_factory=list)
+    relationship_candidates: list[RelationshipCandidate] = Field(default_factory=list)
+    fallback_reason: str | None = None
+
+
+class TurnCommitResult(BaseModel):
+    user_message_id: str
+    assistant_message_id: str
+    evaluation_id: str
+
+
+class KnowledgeExtractionRecord(BaseModel):
+    id: str
+    conversation_id: str
+    user_message_id: str
+    assistant_message_id: str
+    extraction: KnowledgeExtractionResult
+    created_at: datetime
+
+
+class DynamicStateRecord(BaseModel):
+    id: str
+    character_id: str
+    owner: Literal["user", "character"]
+    key: Literal["emotion", "location", "concern", "unresolved_event", "recent_event"]
+    value: str
+    confidence: float = Field(ge=0, le=1)
+    epistemic_state: EpistemicState
+    source_message_id: str
+    created_at: datetime
+
+
+class RelationshipStateRecord(BaseModel):
+    id: str
+    change_id: str
+    character_id: str
+    dimension: Literal["relationship", "trust", "affection"]
+    score: float = Field(ge=-1, le=1)
+    label: str
+    confidence: float = Field(ge=0, le=1)
+    epistemic_state: EpistemicState
+    source_message_id: str
+    created_at: datetime
+
+
+class StateCommitResult(BaseModel):
+    dynamic_states: list[DynamicStateRecord] = Field(default_factory=list)
+    relationship_states: list[RelationshipStateRecord] = Field(default_factory=list)
+    rejected: list[str] = Field(default_factory=list)
 
 
 GuardianCategory = Literal[

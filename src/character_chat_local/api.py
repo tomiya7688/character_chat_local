@@ -19,6 +19,7 @@ from .models import CharacterCore, MemoryRecord, QualityMode
 from .providers import ProviderError, ProviderRegistry
 from .service import ChatService, QualityRejected
 from .storage import ConversationConflict, Storage
+from .task_router import TaskRouter
 from .webui import mount_webui, public_ui_request
 
 
@@ -57,6 +58,7 @@ def create_app(
     api_token: str | None = None,
     ui_directory: str | Path | None = None,
     default_quality_mode: QualityMode | None = None,
+    task_router: TaskRouter | None = None,
 ) -> FastAPI:
     """Local-only API. Instantiation/import does not open a database or a provider."""
 
@@ -76,8 +78,15 @@ def create_app(
             raise RuntimeError(
                 "CHARACTER_CHAT_QUALITY_MODE must be fast, balanced, or strict"
             )
+        app.state.task_router = (
+            task_router
+            if task_router is not None
+            else TaskRouter.from_env(app.state.registry)
+        )
         app.state.service = ChatService(
-            app.state.storage, default_quality_mode=configured_quality_mode
+            app.state.storage,
+            default_quality_mode=configured_quality_mode,
+            task_router=app.state.task_router,
         )
         app.state.active: dict[str, ActiveGeneration] = {}
         app.state.api_token = (
@@ -262,6 +271,21 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
+
+    @app.get("/conversations/{conversation_id}/knowledge-extractions")
+    def knowledge_extractions(conversation_id: str):
+        conversation_or_404(conversation_id)
+        return storage().list_knowledge_extractions(conversation_id)
+
+    @app.get("/characters/{character_id}/state")
+    def current_state(character_id: str):
+        character_or_404(character_id)
+        return storage().latest_dynamic_states(character_id)
+
+    @app.get("/characters/{character_id}/relationship-state")
+    def relationship_state(character_id: str):
+        character_or_404(character_id)
+        return storage().latest_relationship_states(character_id)
 
     @app.get("/conversations/{conversation_id}/summary")
     def get_summary(conversation_id: str):

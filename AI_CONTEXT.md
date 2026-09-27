@@ -30,6 +30,9 @@
 - 再生成は有限。Fastは生成1回のみ。Balanced/Strictも通常1回 + Secondary Recall再生成1回 + 品質修正1回まで。
 - Regenerate / Edit & Retry は既存messageをUPDATE/DELETEしない。元会話を不変に保ち、prefixをpending branchへ複製し、Final成功時だけbranchを公開する。
 - branch成功時だけ置換対象の旧generationを `superseded` にする。Stop/失敗時はpending branchを破棄し、元会話を正本のまま残す。
+- Knowledge ExtractionはUser Message + accepted Final Assistant Messageだけを入力にする。Draft / failed / stopped turnからKnowledge/Stateを確定保存しない。
+- long-term Knowledge候補はconfirmed/inferred/hypothesisとsource roleを保持し、現段階ではcandidate auditに保存する。自動でCanon/Memoryへ昇格しない。
+- Dynamic State / Relationshipの自動commitはrule check後のみ。hypothesisはcommitせず、Relationship deltaは1 turnでclampする。
 - 保存はturn単位で原子的に行う。推論中にSQLite書込lockを保持しない。
 - Credentialはbackendの設定。frontend、DB、エラーへ設定値を流さない。
 - WebUIが本体、Tauriは後続の配布ラッパー。domain logicをUIへ移さない。

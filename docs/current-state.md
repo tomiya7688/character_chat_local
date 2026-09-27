@@ -1,6 +1,6 @@
 # Current State
 
-対象: `feat/input-analysis-context-budget`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
+対象: `feat/postfinal-knowledge-state`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
 
 ## Implemented
 - React / Vite / TypeScript strictのWebUI。キャラクター定義JSONの読込/編集、モデル選択/直接指定、会話開始/再開、品質合格後の表示、Markdown/code、出典付き要約の確認。
@@ -21,6 +21,13 @@
 - generic推定token上限（既定8,000）とUTF-8 byte上限（既定24,000）の両方を満たす。optional sectionは Relationship 20% / State 15% / Relevant Memory 30% / Recent Conversation 35% を基準に未使用budgetを後段へ繰り越す。
 - 固定Character Core / Character Lore / 固定Relationship / 現在入力は黙って切り捨てず、収まらない場合はContextBudgetError。optional memory/historyはwhole record/message group単位で除外する。
 - Context Debugはsectionごとのbudget、used tokens、selected/dropped件数、labelと最終token/byte使用量を保持し、Turn Traceのcontext_build stepから確認できる。
+- accepted Final確定後にKnowledge Extractorを実行し、entities / facts / relations / events / preferences / aliases とCurrent State / Relationship候補を分離して構造化する。User/Assistant sourceとconfirmed/inferred/hypothesisを保持する。
+- Knowledge Extractorは既定deterministic-v1。Task Routerへ専用provider/modelを設定した場合はstructured JSON model extractionを使い、provider/parse失敗時はdeterministic fallbackへ戻る。
+- long-term Knowledge候補は `knowledge_extractions` にprovenance付きで監査保存する。現時点では自動でMemory/Canonへpromoteしない。
+- Dynamic Stateはowner（user/character）・emotion/location/concern等・confidence・epistemic state・source messageをappend-only historyへ保存する。
+- Relationship Stateはrelationship/trust/affectionのscore/label/change_id/sourceをappend-only historyへ保存する。hypothesisは拒否し、1 turnのscore deltaをuser confirmed ±0.08、user inferred ±0.04、assistant ±0.03にclampする。
+- 最新State/Relationshipは次turnでinternal-only contextとして自動再注入する。
+- Stop安全性のため、accepted Final内容を確定した後にcancel可能なKnowledge extractionを行い、その完了後にturnをcommitする。turn commit後のcandidate/state DB保存は同期処理で完了させる。
 - Quality modeは Conversation > Character > Global の順でoverrideする。Global既定は Balanced。
 - FastはPrimary Recall + 1回生成 + Lightweight Checkのみ。Balancedはinspect signal時だけDraft Analysis / Secondary Recall / Guardianを実行。Strictは常時Draft Analysis / Secondary Recall / Guardianを実行し、最後にFinal Guardianを再実行する。
 - Secondary Recallによる再生成は最大1回、品質修正も最大1回。Fastは追加生成を行わないため1回で終了する。
@@ -37,8 +44,8 @@
 ## Explicitly Not Implemented / Unverified
 - Tauri配布、かどか本人による使用テスト。
 - 実Ollama / cloud APIへの接続確認と、実モデルで1,000往復した品質・安定性。
-- 小型モデルの実品質評価、LLMによる意味的な要約・Memory/State自動抽出、vector検索。
-- #97 Knowledge Extraction と #98 State/Relationship candidate commit の実処理。orchestrator上のpost-final stepは現時点では明示的な skipped hook。
+- 小型モデルの実品質評価、LLMによる意味的な要約、vector検索。
+- Knowledge Dictionary本体のEntity/Fact/Relation/Event正規化・temporal supersede・双方向graph retrieval。現状のlong-term extractionはcandidate auditまで。
 - 厳密なモデル別tokenizer、context window自動検出、出力予約込みのモデル別budget調整。現在の8,000 tokenはprovider-neutralな推定値。
 - 一般的な設定矛盾・関係性変化・幻覚の完全な検出。forbiddenは現状、文字列一致として扱う。
 - SSEは未採用（現状はPOST + NDJSON stream）。OS credential store、学習データexportは未実装。
