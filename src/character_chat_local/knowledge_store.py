@@ -603,6 +603,15 @@ class KnowledgeDictionary:
             result.entities_created += int(created)
 
         for candidate in extraction.aliases:
+            if (
+                candidate.source_role != "user"
+                or candidate.epistemic_state != "confirmed"
+                or candidate.confidence < 0.8
+            ):
+                result.rejected.append(
+                    f"alias_unverified:{normalize_knowledge_text(candidate.alias)}"
+                )
+                continue
             entity, created = self.resolve_entity(
                 owner.id,
                 candidate.entity,
@@ -1036,9 +1045,9 @@ class KnowledgeDictionary:
             if row["status"] == "active":
                 db.execute(
                     "UPDATE knowledge_records SET status='invalidated', "
-                    "invalidated_at=?, known_until=?, updated_at=CURRENT_TIMESTAMP "
-                    "WHERE id=?",
-                    (now, now, record_id),
+                    "invalidated_at=?, known_until=?, valid_to=?, "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (now, now, now, record_id),
                 )
             row = db.execute(
                 "SELECT * FROM knowledge_records WHERE id=?", (record_id,)
