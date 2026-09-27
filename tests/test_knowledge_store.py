@@ -104,6 +104,12 @@ def test_alias_canonicalization_and_forward_reverse_lookup(tmp_path):
     assert reverse[0].effective_relation_type == "property_of"
     assert reverse[0].subject == "りんご"
 
+    invalidated_relation = dictionary.invalidate_relation(forward[0].relation_id)
+    assert invalidated_relation.status == "invalidated"
+    assert invalidated_relation.known_until is not None
+    assert invalidated_relation.invalidated_at is not None
+    assert dictionary.lookup_relations(owner_id, "りんご") == []
+
     by_value = dictionary.lookup_records(owner_id, "甘い")
     assert len(by_value) == 1
     assert by_value[0].matched_on == "value"
@@ -175,6 +181,9 @@ def test_fact_dedupe_supersede_and_non_destructive_history(tmp_path):
     assert history[0].status == "superseded"
     assert history[0].superseded_by == history[1].id
     assert history[0].valid_to is not None
+    assert history[0].known_until is not None
+    assert history[1].conversation_id == conversation
+    assert history[1].branch_id == conversation
     assert history[1].value == "大阪"
     assert history[1].status == "active"
 
