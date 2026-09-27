@@ -604,7 +604,7 @@ class KnowledgeDictionary:
             result.aliases_created += int(alias_created)
 
         for candidate in extraction.facts:
-            created, merged, superseded = self._promote_record(
+            created, merged, superseded, entity_created = self._promote_record(
                 owner_id=owner.id,
                 subject=candidate.subject,
                 predicate=candidate.predicate,
@@ -617,12 +617,15 @@ class KnowledgeDictionary:
                 source_message_id=source_ids[candidate.source_role],
                 timeline_id=timeline_id,
             )
+            result.entities_created += int(entity_created)
+            result.entities_created += int(entity_created)
+            result.entities_created += int(entity_created)
             result.records_created += int(created)
             result.records_merged += int(merged)
             result.records_superseded += superseded
 
         for candidate in extraction.preferences:
-            created, merged, superseded = self._promote_record(
+            created, merged, superseded, entity_created = self._promote_record(
                 owner_id=owner.id,
                 subject=candidate.subject,
                 predicate="likes" if candidate.sentiment == "like" else "dislikes",
@@ -643,7 +646,7 @@ class KnowledgeDictionary:
             subject = candidate.entities[0] if candidate.entities else (
                 "user" if candidate.source_role == "user" else character_id
             )
-            created, merged, superseded = self._promote_record(
+            created, merged, superseded, entity_created = self._promote_record(
                 owner_id=owner.id,
                 subject=subject,
                 predicate="event",
@@ -663,7 +666,7 @@ class KnowledgeDictionary:
             result.records_superseded += superseded
 
         for candidate in extraction.relations:
-            created, merged = self._promote_relation(
+            created, merged, entity_created = self._promote_relation(
                 owner_id=owner.id,
                 subject=candidate.subject,
                 predicate=candidate.predicate,
@@ -676,6 +679,7 @@ class KnowledgeDictionary:
                 source_message_id=source_ids[candidate.source_role],
                 timeline_id=timeline_id,
             )
+            result.entities_created += entity_created
             result.relations_created += int(created)
             result.relations_merged += int(merged)
 
@@ -697,8 +701,8 @@ class KnowledgeDictionary:
         timeline_id: str,
         event: bool = False,
         time_reference: str | None = None,
-    ) -> tuple[bool, bool, int]:
-        entity, _ = self.resolve_entity(
+    ) -> tuple[bool, bool, int, bool]:
+        entity, entity_created = self.resolve_entity(
             owner_id,
             subject,
             source_message_id=source_message_id,
@@ -846,7 +850,7 @@ class KnowledgeDictionary:
             conversation_id,
             branch_id,
         )
-        return created, merged, superseded
+        return created, merged, superseded, entity_created
 
     def _promote_relation(
         self,
@@ -862,8 +866,8 @@ class KnowledgeDictionary:
         branch_id: str,
         source_message_id: str,
         timeline_id: str,
-    ) -> tuple[bool, bool]:
-        subject_entity, _ = self.resolve_entity(
+    ) -> tuple[bool, bool, int]:
+        subject_entity, subject_created = self.resolve_entity(
             owner_id,
             subject,
             source_message_id=source_message_id,
@@ -871,7 +875,7 @@ class KnowledgeDictionary:
             conversation_id=conversation_id,
             branch_id=branch_id,
         )
-        object_entity, _ = self.resolve_entity(
+        object_entity, object_created = self.resolve_entity(
             owner_id,
             object_name,
             source_message_id=source_message_id,
@@ -947,7 +951,7 @@ class KnowledgeDictionary:
             conversation_id,
             branch_id,
         )
-        return created, merged
+        return created, merged, int(subject_created) + int(object_created)
 
     def active_records(self, owner_id: str) -> list[KnowledgeRecord]:
         with self.storage.session() as db:
