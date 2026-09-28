@@ -26,6 +26,26 @@ QualityMode = Literal["fast", "balanced", "strict"]
 TurnStepStatus = Literal["completed", "skipped", "failed"]
 EpistemicState = Literal["confirmed", "inferred", "hypothesis"]
 KnowledgeSourceRole = Literal["user", "assistant"]
+KnowledgeOwnerType = Literal["world", "user", "character"]
+KnowledgeRecordType = Literal[
+    "FACT",
+    "CLAIM",
+    "INTENT",
+    "PLAN",
+    "INFERENCE",
+    "HYPOTHESIS",
+    "PREDICTION",
+    "EVENT",
+]
+KnowledgeStatus = Literal["active", "superseded", "invalidated"]
+TemporalContext = Literal[
+    "past",
+    "present",
+    "future",
+    "flashback",
+    "planned",
+    "unknown",
+]
 TaskRole = Literal[
     "main_chat",
     "knowledge_extractor",
@@ -270,6 +290,131 @@ class RelationshipStateRecord(BaseModel):
 class StateCommitResult(BaseModel):
     dynamic_states: list[DynamicStateRecord] = Field(default_factory=list)
     relationship_states: list[RelationshipStateRecord] = Field(default_factory=list)
+    rejected: list[str] = Field(default_factory=list)
+
+
+class KnowledgeOwnerRecord(BaseModel):
+    id: str
+    owner_type: KnowledgeOwnerType
+    character_id: str | None = None
+    timeline_id: str = "main"
+    temporal_instance: str = "present"
+    created_at: datetime
+
+
+class KnowledgeEntityRecord(BaseModel):
+    id: str
+    owner_id: str
+    canonical_name: str
+    normalized_name: str
+    entity_type: str = "unknown"
+    base_character_id: str | None = None
+    timeline_id: str = "main"
+    temporal_instance: str = "present"
+    created_at: datetime
+
+
+class KnowledgeAliasRecord(BaseModel):
+    id: str
+    owner_id: str
+    entity_id: str
+    alias: str
+    normalized_alias: str
+    source_message_id: str | None = None
+    created_at: datetime
+
+
+class KnowledgeRecord(BaseModel):
+    id: str
+    owner_id: str
+    subject_entity_id: str
+    predicate: str
+    value: str
+    record_type: KnowledgeRecordType
+    status: KnowledgeStatus
+    confidence: float = Field(ge=0, le=1)
+    epistemic_state: EpistemicState
+    source_role: KnowledgeSourceRole
+    timeline_id: str = "main"
+    temporal_context: TemporalContext = "unknown"
+    scene_id: str | None = None
+    arc_id: str | None = None
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    known_from: datetime | None = None
+    known_until: datetime | None = None
+    superseded_by: str | None = None
+    invalidated_at: datetime | None = None
+    conversation_id: str
+    branch_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeRelationRecord(BaseModel):
+    id: str
+    owner_id: str
+    subject_entity_id: str
+    relation_type: str
+    object_entity_id: str
+    inverse_relation_type: str | None = None
+    symmetric: bool = False
+    status: KnowledgeStatus
+    confidence: float = Field(ge=0, le=1)
+    epistemic_state: EpistemicState
+    source_role: KnowledgeSourceRole
+    timeline_id: str = "main"
+    temporal_context: TemporalContext = "unknown"
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    known_from: datetime | None = None
+    known_until: datetime | None = None
+    superseded_by: str | None = None
+    invalidated_at: datetime | None = None
+    conversation_id: str
+    branch_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeProvenanceRecord(BaseModel):
+    id: str
+    knowledge_kind: Literal["entity", "alias", "record", "relation"]
+    knowledge_id: str
+    source_message_id: str
+    source_role: KnowledgeSourceRole
+    conversation_id: str
+    branch_id: str
+    created_at: datetime
+
+
+class KnowledgeRelationLookupHit(BaseModel):
+    relation_id: str
+    direction: Literal["forward", "reverse"]
+    subject: str
+    relation_type: str
+    effective_relation_type: str
+    object: str
+    confidence: float = Field(ge=0, le=1)
+
+
+class KnowledgeRecordLookupHit(BaseModel):
+    record: KnowledgeRecord
+    subject: str
+    matched_on: Literal["subject", "value"]
+
+
+class KnowledgePromotionResult(BaseModel):
+    owner_id: str
+    entities_created: int = 0
+    aliases_created: int = 0
+    records_created: int = 0
+    records_merged: int = 0
+    records_superseded: int = 0
+    relations_created: int = 0
+    relations_merged: int = 0
     rejected: list[str] = Field(default_factory=list)
 
 

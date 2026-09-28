@@ -1,6 +1,6 @@
 # Current State
 
-対象: `feat/postfinal-knowledge-state`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
+対象: `feat/knowledge-lifecycle`。v1.0の完成宣言ではなく、backendと初期WebUIの実装範囲。
 
 ## Implemented
 - React / Vite / TypeScript strictのWebUI。キャラクター定義JSONの読込/編集、モデル選択/直接指定、会話開始/再開、品質合格後の表示、Markdown/code、出典付き要約の確認。
@@ -23,7 +23,14 @@
 - Context Debugはsectionごとのbudget、used tokens、selected/dropped件数、labelと最終token/byte使用量を保持し、Turn Traceのcontext_build stepから確認できる。
 - accepted Final確定後にKnowledge Extractorを実行し、entities / facts / relations / events / preferences / aliases とCurrent State / Relationship候補を分離して構造化する。User/Assistant sourceとconfirmed/inferred/hypothesisを保持する。
 - Knowledge Extractorは既定deterministic-v1。Task Routerへ専用provider/modelを設定した場合はstructured JSON model extractionを使い、provider/parse失敗時はdeterministic fallbackへ戻る。
-- long-term Knowledge候補は `knowledge_extractions` にprovenance付きで監査保存する。現時点では自動でMemory/Canonへpromoteしない。
+- long-term Knowledge候補は `knowledge_extractions` にprovenance付きで監査保存した後、追加型canonical Knowledge storeへpromoteする。legacy Memory / Character Core / Canonは破壊しない。
+- Canonical KnowledgeはKnowledge Owner（world/user/character）、Entity/Alias、typed Fact-like record、typed Relation、provenanceを分離する。自動promotionはactive Character owner（timeline=main）へ行う。
+- Entity identityはNFKC/casefoldのexact normalized nameと明示Aliasを使う。Aliasのcanonical mergeはUser-confirmedかつconfidence>=0.8だけ自動許可し、Assistant/推測Aliasは拒否する。
+- record typeは FACT / CLAIM / INTENT / PLAN / INFERENCE / HYPOTHESIS / PREDICTION / EVENT。未来予定・願望・予測をFACTへ自動昇格しない。
+- Assistant由来の新規confirmed候補はcanonical FACTへせずCLAIM/inferredへdowngradeする。既存User-confirmed FACTと完全一致する場合だけ同一recordへprovenanceを追加する。
+- exact duplicate record/relationは新規rowを増やさずprovenance/confidenceを統合する。single-valued User-confirmed FACT（location/age/job等）の新値は旧recordを物理削除せずsupersededにし、valid_to/known_untilを閉じる。明示invalidated lifecycleも保持する。
+- Relationはforward/reverse indexを持ち、likes<->liked_by、has_property<->property_of等のinverse mappingとfriend_of等のsymmetric relationを区別する。
+- canonical lookup APIでsubject/valueの両方向Fact検索、Relation forward/reverse、Fact historyを確認できる。
 - Dynamic Stateはowner（user/character）・emotion/location/concern等・confidence・epistemic state・source messageをappend-only historyへ保存する。
 - Relationship Stateはrelationship/trust/affectionのscore/label/change_id/sourceをappend-only historyへ保存する。hypothesisは拒否し、1 turnのscore deltaをuser confirmed ±0.08、user inferred ±0.04、assistant ±0.03にclampする。
 - 最新State/Relationshipは次turnでinternal-only contextとして自動再注入する。
@@ -45,7 +52,8 @@
 - Tauri配布、かどか本人による使用テスト。
 - 実Ollama / cloud APIへの接続確認と、実モデルで1,000往復した品質・安定性。
 - 小型モデルの実品質評価、LLMによる意味的な要約、vector検索。
-- Knowledge Dictionary本体のEntity/Fact/Relation/Event正規化・temporal supersede・双方向graph retrieval。現状のlong-term extractionはcandidate auditまで。
+- Knowledge DictionaryのPrimary Recall統合、semantic retrieval、multi-hop graph traversal、branch-lineage visibility、完全なconflict resolver。
+- #149 migration runner / #166 thread-branch identity / #170 message sequence / #171 relational constraints / #178 owner inheritanceを前提にした #150 のlegacy Memory撤去・正式migration。現在のcanonical tablesは追加型のpre-migration層。
 - 厳密なモデル別tokenizer、context window自動検出、出力予約込みのモデル別budget調整。現在の8,000 tokenはprovider-neutralな推定値。
 - 一般的な設定矛盾・関係性変化・幻覚の完全な検出。forbiddenは現状、文字列一致として扱う。
 - SSEは未採用（現状はPOST + NDJSON stream）。OS credential store、学習データexportは未実装。
@@ -55,6 +63,8 @@
 `covered_messages` は処理済み件数であり、その全内容を要約内に保持しているという意味ではない。
 全文はSQLiteへ残るが、要約から外れた任意の過去発言を自動検索する仕組みは未実装。
 Input Analysisは形態素解析/NERモデルではなく軽量heuristicであり、固有名詞・意図・感情抽出の完全性を保証しない。
+Canonical Entity resolverもsemantic/fuzzy mergeではなくnormalized exact name + explicit aliasのみ。別timeline/同名Entityの高度なidentity resolutionは未実装。
+現行Conversation schemaではconversation_idとbranch_idが同一概念なので、canonical recordには両方同じ値を暫定保存する。#166完了までcanonical KnowledgeをRecallへ投入しない。
 従来の `POST /chat` は検証完了までbufferする。WebUIは `POST /chat/stream` の初回draftを未確定previewとして表示するが、Finalだけを保存済み会話として扱う。
 Regenerate / Edit & Retry は会話履歴を破壊的に巻き戻さずbranchを作る。branch作成時はprefixを複製するため、branch数に応じてSQLite上の履歴容量は増える。
 この機能追加前の既存assistant messageには `generation_id` がないため、branch自体は作れるが過去generationを遡って `superseded` に結び付けることはできない。

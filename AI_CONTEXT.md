@@ -31,7 +31,11 @@
 - Regenerate / Edit & Retry は既存messageをUPDATE/DELETEしない。元会話を不変に保ち、prefixをpending branchへ複製し、Final成功時だけbranchを公開する。
 - branch成功時だけ置換対象の旧generationを `superseded` にする。Stop/失敗時はpending branchを破棄し、元会話を正本のまま残す。
 - Knowledge ExtractionはUser Message + accepted Final Assistant Messageだけを入力にする。Draft / failed / stopped turnからKnowledge/Stateを確定保存しない。
-- long-term Knowledge候補はconfirmed/inferred/hypothesisとsource roleを保持し、現段階ではcandidate auditに保存する。自動でCanon/Memoryへ昇格しない。
+- long-term Knowledge候補はconfirmed/inferred/hypothesisとsource roleを保持する。candidate audit保存後、canonical Knowledge storeへnon-destructiveにpromoteするが、Character Core/Canonやlegacy Memoryを上書きしない。
+- Canonical Knowledgeの新規FACTは原則User-confirmedのみ。Assistant-origin confirmed候補は新規FACTへせずCLAIM/inferredへdowngradeし、未確認Aliasもcanonical mergeしない。
+- Knowledge record typeは FACT / CLAIM / INTENT / PLAN / INFERENCE / HYPOTHESIS / PREDICTION / EVENT を分離する。旧recordはhard deleteせずsuperseded/invalidated履歴として保持する。
+- Typed Relationのreverse lookupはinverse relationを返し、逆向きを同値関係として扱わない。
+- Canonical Knowledgeは #166/#132 のbranch lineageが完成するまでPrimary Recallへ接続しない。現状のRecall sourceはlegacy Memory + State。
 - Dynamic State / Relationshipの自動commitはrule check後のみ。hypothesisはcommitせず、Relationship deltaは1 turnでclampする。
 - 保存はturn単位で原子的に行う。推論中にSQLite書込lockを保持しない。
 - Credentialはbackendの設定。frontend、DB、エラーへ設定値を流さない。
